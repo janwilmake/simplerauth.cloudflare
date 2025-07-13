@@ -14,6 +14,7 @@ interface OAuthState {
   clientId?: string
   originalState?: string
   redirectUri?: string
+  message?: string
 }
 
 export interface GitHubUser {
@@ -119,7 +120,8 @@ export class CodeDO extends DurableObject {
     clientId: string,
     redirectUri: string,
     selectedKeyId?: string,
-    resource?: string
+    resource?: string,
+    message?: string
   ) {
     await this.storage.put('data', {
       username,
@@ -127,7 +129,8 @@ export class CodeDO extends DurableObject {
       clientId,
       redirectUri,
       selectedKeyId,
-      resource
+      resource,
+      message
     })
   }
 
@@ -139,6 +142,7 @@ export class CodeDO extends DurableObject {
       redirectUri: string
       selectedKeyId?: string
       resource?: string
+      message?: string
     }>('data')
   }
 }
@@ -253,12 +257,14 @@ async function handleAuthorize(
   const responseType = url.searchParams.get('response_type') || 'code'
   const state = url.searchParams.get('state')
   const resource = url.searchParams.get('resource')
+  const message = url.searchParams.get('message') // New parameter
 
   // If no client_id, this is a direct login request
   if (!clientId) {
     const url = new URL(request.url)
     const redirectTo = url.searchParams.get('redirect_to') || '/'
     const resource = url.searchParams.get('resource')
+    const message = url.searchParams.get('message')
 
     // Check if user is already logged in
     const username = getGitHubUsername(request)
@@ -274,7 +280,7 @@ async function handleAuthorize(
     const codeVerifier = generateCodeVerifier()
     const codeChallenge = await generateCodeChallenge(codeVerifier)
 
-    const state: OAuthState = { redirectTo, codeVerifier, resource }
+    const state: OAuthState = { redirectTo, codeVerifier, resource, message }
     const stateString = btoa(JSON.stringify(state))
 
     // Build GitHub OAuth URL
@@ -300,6 +306,13 @@ async function handleAuthorize(
   // Validate client_id
   if (!isValidDomain(clientId) && clientId !== 'localhost') {
     return new Response('Invalid client_id: must be a valid domain', {
+      status: 400
+    })
+  }
+
+  // Validate message parameter (optional security measure)
+  if (message && !isValidMessage(message)) {
+    return new Response('Invalid message: contains unsafe content', {
       status: 400
     })
   }
@@ -342,7 +355,8 @@ async function handleAuthorize(
       redirectUri,
       state,
       username,
-      resource
+      resource,
+      message
     )
   }
 
@@ -351,7 +365,8 @@ async function handleAuthorize(
     clientId,
     redirectUri,
     originalState: state,
-    resource
+    resource,
+    message
   }
 
   const providerStateString = btoa(JSON.stringify(providerState))
@@ -366,7 +381,8 @@ async function handleAuthorize(
     resource,
     clientId,
     originalState: state,
-    redirectUri
+    redirectUri,
+    message
   }
 
   const githubStateString = btoa(JSON.stringify(githubState))
@@ -397,7 +413,8 @@ async function showKeyManagementPage(
   redirectUri: string,
   state: string | null,
   username: string,
-  resource?: string
+  resource?: string,
+  message?: string
 ): Promise<Response> {
   // Get user's data
   const userDOId = env.UserDO.idFromName(`user:${username}`)
@@ -427,7 +444,8 @@ async function showKeyManagementPage(
           username,
           userData.githubAccessToken,
           selectedKeyId.toString(),
-          resource
+          resource,
+          message
         )
       }
     }
@@ -438,7 +456,14 @@ async function showKeyManagementPage(
       const apiKey = formData.get('apiKey')?.toString()
 
       if (!name || !accountId || !apiKey) {
-        return showKeyManagementPageHTML(user, keys, clientId, 'Missing required fields', true)
+        return showKeyManagementPageHTML(
+          user,
+          keys,
+          clientId,
+          'Missing required fields',
+          true,
+          message
+        )
       }
 
       // Validate the API key by making a test request
@@ -458,7 +483,8 @@ async function showKeyManagementPage(
           keys,
           clientId,
           'Invalid API key or Account ID',
-          true
+          true,
+          message
         )
       }
 
@@ -491,7 +517,7 @@ async function showKeyManagementPage(
     }
   }
 
-  return showKeyManagementPageHTML(user, keys, clientId, undefined, true)
+  return showKeyManagementPageHTML(user, keys, clientId, undefined, true, message)
 }
 
 function showKeyManagementPageHTML(
@@ -499,7 +525,8 @@ function showKeyManagementPageHTML(
   keys: CloudflareAPIKey[],
   clientId: string,
   error?: string,
-  isOAuthFlow = false
+  isOAuthFlow = false,
+  message?: string
 ): Response {
   const keyOptions = keys
     .map(
@@ -527,6 +554,10 @@ function showKeyManagementPageHTML(
   `
     )
     .join('')
+
+  // Format the authorization message
+  const defaultMessage = `requests access to your Cloudflare account. Select an API key to grant access with those permissions.`
+  const authMessage = message ? sanitizeMessage(message) : defaultMessage
 
   return new Response(
     `
@@ -609,6 +640,7 @@ function showKeyManagementPageHTML(
           padding: 16px;
           margin-bottom: 24px;
           font-size: 14px;
+          line-height: 1.6;
         }
         
         .oauth-notice strong {
@@ -620,6 +652,12 @@ function showKeyManagementPageHTML(
           background: rgba(0,0,0,0.1);
           padding: 2px 4px;
           border-radius: 3px;
+          font-weight: 600;
+        }
+        
+        .oauth-message {
+          margin-top: 8px;
+          color: #374151;
         }
         
         .error {
@@ -851,11 +889,10 @@ function showKeyManagementPageHTML(
             isOAuthFlow
               ? `
             <div class="oauth-notice">
-              <strong>⚠️ Authorization Request</strong><br>
-              <span class="client-id">${escapeHtml(
+              <strong>⚠️ Authorization Request by <span class="client-id">${escapeHtml(
                 clientId
-              )}</span> is requesting access to your Cloudflare account. 
-              Select an API key to grant access with those permissions.
+              )}</span></strong>
+              <div class="oauth-message">${authMessage}</div>
             </div>
           `
               : ''
@@ -943,7 +980,8 @@ async function createAuthCodeAndRedirect(
   username: string,
   githubAccessToken: string,
   selectedKeyId: string,
-  resource?: string
+  resource?: string,
+  message?: string
 ): Promise<Response> {
   // Generate auth code
   const authCode = generateCodeVerifier()
@@ -958,7 +996,8 @@ async function createAuthCodeAndRedirect(
     clientId,
     redirectUri,
     selectedKeyId,
-    resource
+    resource,
+    message
   )
 
   // Redirect back to client with auth code
@@ -1086,7 +1125,8 @@ async function handleToken(request: Request, env: Env, scope: string): Promise<R
       scope,
       cloudflare_account_id: selectedKey.accountId,
       cloudflare_api_key: selectedKey.apiKey,
-      cloudflare_key_name: selectedKey.name
+      cloudflare_key_name: selectedKey.name,
+      ...(authData.message && { message: authData.message })
     }),
     { headers }
   )
@@ -1184,6 +1224,9 @@ async function handleCallback(request: Request, env: Env, sameSite: string): Pro
     }
     if (state.resource) {
       redirectUrl.searchParams.set('resource', state.resource)
+    }
+    if (state.message) {
+      redirectUrl.searchParams.set('message', state.message)
     }
 
     const headers = new Headers({ Location: redirectUrl.toString() })
@@ -1325,6 +1368,39 @@ function isValidDomain(domain: string): boolean {
   return domainRegex.test(domain) && domain.includes('.') && domain.length <= 253
 }
 
+function isValidMessage(message: string): boolean {
+  // Basic validation for the message parameter
+  // - Max length of 500 characters
+  // - No HTML tags or script content
+  // - No URLs to prevent phishing
+
+  if (!message || message.length > 500) {
+    return false
+  }
+
+  // Check for HTML tags
+  if (/<[^>]*>/.test(message)) {
+    return false
+  }
+
+  // Check for script content
+  if (/script|javascript|data:|vbscript|onload|onerror|onclick/i.test(message)) {
+    return false
+  }
+
+  // Check for URLs (basic detection)
+  if (/https?:\/\/|www\.|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i.test(message)) {
+    return false
+  }
+
+  return true
+}
+
+function sanitizeMessage(message: string): string {
+  // Additional sanitization for display
+  return escapeHtml(message).replace(/\n/g, '<br>').substring(0, 500) // Truncate if too long
+}
+
 function generateCodeVerifier(): string {
   const array = new Uint8Array(32)
   crypto.getRandomValues(array)
@@ -1453,7 +1529,7 @@ Integrate "Login with Cloudflare" into your application using standard OAuth 2.0
 Redirect users to the authorization endpoint:
 
 \`\`\`
-${baseUrl}/authorize?client_id=yourdomain.com&redirect_uri=https://yourdomain.com/callback&response_type=code&state=random-state-string
+${baseUrl}/authorize?client_id=yourdomain.com&redirect_uri=https://yourdomain.com/callback&response_type=code&state=random-state-string&message=We need access to deploy your site to Cloudflare
 \`\`\`
 
 **Parameters:**
@@ -1461,6 +1537,7 @@ ${baseUrl}/authorize?client_id=yourdomain.com&redirect_uri=https://yourdomain.co
 - \`redirect_uri\`: Where to redirect after authorization (must be HTTPS and on same domain)
 - \`response_type\`: Must be \`code\`
 - \`state\`: Random string to prevent CSRF attacks
+- \`message\`: (Optional) Custom message to show users explaining why you need access
 
 ### Step 2: Handle Authorization Code
 
@@ -1486,7 +1563,8 @@ curl -X POST ${baseUrl}/token \\
   "scope": "user:email",
   "cloudflare_account_id": "account123",
   "cloudflare_api_key": "token456",
-  "cloudflare_key_name": "My API Key"
+  "cloudflare_key_name": "My API Key",
+  "message": "We need access to deploy your site to Cloudflare"
 }
 \`\`\`
 
@@ -1505,12 +1583,13 @@ curl -X GET https://api.cloudflare.com/client/v4/zones \\
 ### JavaScript/Node.js
 
 \`\`\`javascript
-// Redirect to authorization
+// Redirect to authorization with custom message
 const authUrl = new URL('${baseUrl}/authorize');
 authUrl.searchParams.set('client_id', 'yourdomain.com');
 authUrl.searchParams.set('redirect_uri', 'https://yourdomain.com/callback');
 authUrl.searchParams.set('response_type', 'code');
 authUrl.searchParams.set('state', generateRandomState());
+authUrl.searchParams.set('message', 'We need access to deploy your site to Cloudflare');
 window.location.href = authUrl.toString();
 
 // Handle callback
@@ -1530,6 +1609,7 @@ app.get('/callback', async (req, res) => {
   
   const data = await response.json();
   // Use data.cloudflare_api_key and data.cloudflare_account_id
+  // The original message is available in data.message
 });
 \`\`\`
 
@@ -1537,6 +1617,18 @@ app.get('/callback', async (req, res) => {
 
 \`\`\`python
 import requests
+import urllib.parse
+
+# Redirect to authorization with custom message
+auth_url = '${baseUrl}/authorize'
+params = {
+    'client_id': 'yourdomain.com',
+    'redirect_uri': 'https://yourdomain.com/callback',
+    'response_type': 'code',
+    'state': generate_random_state(),
+    'message': 'We need access to deploy your site to Cloudflare'
+}
+redirect_url = f"{auth_url}?{urllib.parse.urlencode(params)}"
 
 # Exchange code for token
 response = requests.post('${baseUrl}/token', data={
@@ -1549,6 +1641,7 @@ response = requests.post('${baseUrl}/token', data={
 token_data = response.json()
 api_key = token_data['cloudflare_api_key']
 account_id = token_data['cloudflare_account_id']
+original_message = token_data.get('message')  # Optional field
 
 # Use Cloudflare API
 cf_response = requests.get(
@@ -1560,6 +1653,26 @@ cf_response = requests.get(
 )
 \`\`\`
 
+## Custom Messages
+
+The \`message\` parameter allows you to provide context to users about why your application needs access to their Cloudflare account. This improves user trust and understanding.
+
+**Guidelines for messages:**
+- Keep it concise (max 500 characters)
+- Explain the specific use case
+- No HTML, URLs, or script content allowed
+- Be honest and transparent
+
+**Good examples:**
+- "We need access to deploy your site to Cloudflare"
+- "Required to manage DNS records for your domain"
+- "Needed to configure SSL certificates for your website"
+
+**Bad examples:**
+- "Give us access" (too vague)
+- "Visit https://example.com for more info" (contains URL)
+- Messages with HTML or script content
+
 ## Security Considerations
 
 ⚠️ **Important**: This service provides users' actual Cloudflare API keys to your application. Only use this for applications you completely trust.
@@ -1569,6 +1682,7 @@ cf_response = requests.get(
 - Use separate keys for different applications
 - Regularly rotate API keys
 - Monitor key usage through the management interface
+- Use meaningful messages to build user trust
 
 ## OAuth 2.0 Discovery
 
@@ -1608,11 +1722,16 @@ async function handleDemo(request: Request, env: Env): Promise<Response> {
         .nav { margin-bottom: 20px; }
         .nav a { color: #007bff; text-decoration: none; margin-right: 20px; }
         .nav a:hover { text-decoration: underline; }
-        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; margin: 5px; }
         button:hover { background: #0056b3; }
         #result { margin-top: 20px; padding: 15px; border-radius: 8px; }
         .success { background: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
         .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+        .form-group { margin: 10px 0; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        textarea { height: 80px; resize: vertical; }
+        .char-count { font-size: 12px; color: #666; text-align: right; margin-top: 2px; }
       </style>
     </head>
     <body>
@@ -1623,11 +1742,21 @@ async function handleDemo(request: Request, env: Env): Promise<Response> {
       </div>
 
       <h1>OAuth Demo</h1>
-      <p>This demo shows how other applications can integrate with Login with Cloudflare.</p>
+      <p>This demo shows how other applications can integrate with Login with Cloudflare, including custom messages.</p>
 
-      <h2>Step 1: Authorization</h2>
-      <p>Click this button to start the OAuth flow as if you were a third-party application:</p>
+      <h2>Step 1: Authorization with Custom Message</h2>
+      <p>Customize the message shown to users during authorization:</p>
+      
+      <div class="form-group">
+        <label for="customMessage">Authorization Message:</label>
+        <textarea id="customMessage" placeholder="We need access to deploy your site to Cloudflare">We need access to deploy your site to Cloudflare</textarea>
+        <div class="char-count">
+          <span id="charCount">52</span>/500 characters
+        </div>
+      </div>
+      
       <button onclick="startOAuth()">Start OAuth Flow</button>
+      <button onclick="startOAuth('')">Start OAuth Flow (No Message)</button>
 
       <h2>Step 2: Token Exchange</h2>
       <p>After authorization, the code will be exchanged for an access token automatically.</p>
@@ -1636,12 +1765,13 @@ async function handleDemo(request: Request, env: Env): Promise<Response> {
       <div id="result"></div>
 
       <h2>Implementation Example</h2>
-      <div class="code">// 1. Redirect user to authorize endpoint
+      <div class="code">// 1. Redirect user to authorize endpoint with custom message
 const authUrl = new URL('${baseUrl}/authorize');
 authUrl.searchParams.set('client_id', 'yourdomain.com');
 authUrl.searchParams.set('redirect_uri', 'https://yourdomain.com/callback');
 authUrl.searchParams.set('response_type', 'code');
 authUrl.searchParams.set('state', 'random-state-string');
+authUrl.searchParams.set('message', 'We need access to deploy your site to Cloudflare');
 window.location.href = authUrl.toString();
 
 // 2. Handle callback and exchange code for token
@@ -1658,18 +1788,35 @@ const response = await fetch('${baseUrl}/token', {
 
 const data = await response.json();
 // data.cloudflare_api_key contains the user's API key
-// data.cloudflare_account_id contains the account ID</div>
+// data.cloudflare_account_id contains the account ID
+// data.message contains the original authorization message</div>
 
       <script>
         const CLIENT_ID = window.location.hostname;
         const REDIRECT_URI = window.location.origin + '/demo';
+        
+        // Character counter
+        const messageInput = document.getElementById('customMessage');
+        const charCountSpan = document.getElementById('charCount');
+        
+        messageInput.addEventListener('input', function() {
+          const count = this.value.length;
+          charCountSpan.textContent = count;
+          charCountSpan.style.color = count > 500 ? '#dc3545' : '#666';
+        });
 
-        function startOAuth() {
+        function startOAuth(customMessage = null) {
+          const message = customMessage !== null ? customMessage : document.getElementById('customMessage').value;
+          
           const authUrl = new URL('${baseUrl}/authorize');
           authUrl.searchParams.set('client_id', CLIENT_ID);
           authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
           authUrl.searchParams.set('response_type', 'code');
           authUrl.searchParams.set('state', Math.random().toString(36));
+          
+          if (message && message.trim()) {
+            authUrl.searchParams.set('message', message.trim());
+          }
           
           window.location.href = authUrl.toString();
         }
@@ -1702,6 +1849,7 @@ const data = await response.json();
                     <p><strong>Key Name:</strong> \${data.cloudflare_key_name}</p>
                     <p><strong>Account ID:</strong> \${data.cloudflare_account_id}</p>
                     <p><strong>API Key:</strong> \${data.cloudflare_api_key.substring(0, 20)}...</p>
+                    \${data.message ? \`<p><strong>Original Message:</strong> \${data.message}</p>\` : ''}
                     <p><em>In a real application, you would now use these credentials to access the Cloudflare API.</em></p>
                   </div>
                 \`;
