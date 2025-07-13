@@ -556,7 +556,7 @@ function showKeyManagementPageHTML(
     .join('')
 
   // Format the authorization message
-  const defaultMessage = `requests access to your Cloudflare account. Select an API key to grant access with those permissions.`
+  const defaultMessage = `Access Requested to your Cloudflare account. Select an API key to grant access with the required permissions.`
   const authMessage = message ? sanitizeMessage(message) : defaultMessage
 
   return new Response(
@@ -639,7 +639,7 @@ function showKeyManagementPageHTML(
           border-radius: 6px;
           padding: 16px;
           margin-bottom: 24px;
-          font-size: 14px;
+          font-size: 12px;
           line-height: 1.6;
         }
         
