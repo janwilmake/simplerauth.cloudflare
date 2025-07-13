@@ -504,31 +504,24 @@ function showKeyManagementPageHTML(
   const keyOptions = keys
     .map(
       key => `
-    <div class="key-option">
+    <div class="key-item">
       <div class="key-info">
-        <div class="key-main">
-          <strong>${escapeHtml(key.name)}</strong>
-          <small class="key-account">Account ID: ${escapeHtml(key.accountId)}</small>
-        </div>
-        <div class="key-meta">
-          <small>Created: ${new Date(key.createdAt).toLocaleDateString()}</small>
-          ${
-            key.lastUsed
-              ? `<small>Last used: ${new Date(key.lastUsed).toLocaleDateString()}</small>`
-              : '<small>Never used</small>'
-          }
+        <div class="key-name">${escapeHtml(key.name)}</div>
+        <div class="key-details">
+          <span class="account-id">${escapeHtml(key.accountId)}</span>
+          <span class="key-date">Added ${new Date(key.createdAt).toLocaleDateString()}</span>
         </div>
       </div>
       <div class="key-actions">
         ${
           isOAuthFlow
-            ? `<button type="submit" name="keyId" value="${key.id}" class="select-btn">Select</button>`
+            ? `<button type="submit" name="keyId" value="${key.id}" class="btn btn-primary">Select</button>`
             : ''
         }
         <form method="POST" style="display: inline;">
           <input type="hidden" name="action" value="delete">
           <input type="hidden" name="keyId" value="${key.id}">
-          <button type="submit" class="delete-btn" onclick="return confirm('Are you sure?')">×</button>
+          <button type="submit" class="btn btn-text" title="Remove key" onclick="return confirm('Remove this API key?')">Remove</button>
         </form>
       </div>
     </div>
@@ -539,132 +532,403 @@ function showKeyManagementPageHTML(
   return new Response(
     `
     <!DOCTYPE html>
-    <html>
+    <html lang="en">
     <head>
-      <title>${isOAuthFlow ? 'Select Cloudflare API Key' : 'Manage Cloudflare API Keys'}</title>
+      <title>${isOAuthFlow ? 'Authorize Access' : 'Manage API Keys'} - Simpler Auth</title>
       <meta name="viewport" content="width=device-width, initial-scale=1">
+      <meta charset="utf-8">
       <style>
-        body { font-family: system-ui, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; }
-        .user-info { background: #f5f5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; }
-        .user-info img { border-radius: 50%; margin-right: 15px; }
-        .key-option { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
-        .key-option:hover { background: #f9f9f9; }
-        .key-info { flex: 1; }
-        .key-main { margin-bottom: 5px; }
-        .key-meta { display: flex; gap: 15px; }
-        .key-meta small { color: #666; }
-        .key-account { color: #666; display: block; margin-top: 2px; }
-        .key-actions { display: flex; gap: 10px; align-items: center; }
-        .select-btn { background: #007bff; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
-        .select-btn:hover { background: #0056b3; }
-        .delete-btn { background: #dc3545; color: white; border: none; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center; }
-        .delete-btn:hover { background: #c82333; }
-        .warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0; }
-        .warning strong { color: #856404; }
-        .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 8px; margin: 20px 0; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; }
-        input[type="text"], input[type="password"] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
-        .add-form { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 30px; }
-        .add-form h3 { margin-top: 0; }
-        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
-        button:hover { background: #0056b3; }
-        .info { background: #d1ecf1; color: #0c5460; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
-        .nav { margin-bottom: 20px; }
-        .nav a { color: #007bff; text-decoration: none; margin-right: 20px; }
-        .nav a:hover { text-decoration: underline; }
+        * { box-sizing: border-box; }
+        
+        body { 
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          margin: 0;
+          padding: 20px;
+          background: #fafafa;
+          color: #333;
+          line-height: 1.5;
+        }
+        
+        .container {
+          max-width: 480px;
+          margin: 0 auto;
+          background: white;
+          border-radius: 8px;
+          box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+          border: 1px solid #e1e5e9;
+        }
+        
+        .header {
+          padding: 32px 32px 24px;
+          text-align: center;
+          border-bottom: 1px solid #e1e5e9;
+        }
+        
+        .logo {
+          font-size: 20px;
+          font-weight: 600;
+          color: #2563eb;
+          margin-bottom: 8px;
+        }
+        
+        .subtitle {
+          font-size: 15px;
+          color: #6b7280;
+          margin: 0;
+        }
+        
+        .content {
+          padding: 32px;
+        }
+        
+        .user-info {
+          display: flex;
+          align-items: center;
+          padding: 16px;
+          background: #f8fafc;
+          border: 1px solid #e1e5e9;
+          border-radius: 6px;
+          margin-bottom: 24px;
+        }
+        
+        .user-info img {
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          margin-right: 12px;
+        }
+        
+        .user-name {
+          font-weight: 500;
+          color: #111827;
+        }
+        
+        .oauth-notice {
+          background: #fef3c7;
+          border: 1px solid #f59e0b;
+          border-radius: 6px;
+          padding: 16px;
+          margin-bottom: 24px;
+          font-size: 14px;
+        }
+        
+        .oauth-notice strong {
+          color: #92400e;
+        }
+        
+        .oauth-notice .client-id {
+          font-family: monospace;
+          background: rgba(0,0,0,0.1);
+          padding: 2px 4px;
+          border-radius: 3px;
+        }
+        
+        .error {
+          background: #fef2f2;
+          border: 1px solid #fecaca;
+          color: #b91c1c;
+          padding: 12px 16px;
+          border-radius: 6px;
+          margin-bottom: 24px;
+          font-size: 14px;
+        }
+        
+        .section-title {
+          font-size: 16px;
+          font-weight: 600;
+          margin: 0 0 16px 0;
+          color: #111827;
+        }
+        
+        .key-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 16px;
+          border: 1px solid #e1e5e9;
+          border-radius: 6px;
+          margin-bottom: 12px;
+          background: #fafafa;
+        }
+        
+        .key-info {
+          flex: 1;
+          min-width: 0;
+        }
+        
+        .key-name {
+          font-weight: 500;
+          color: #111827;
+          margin-bottom: 4px;
+        }
+        
+        .key-details {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+        
+        .account-id {
+          font-family: monospace;
+          font-size: 12px;
+          color: #6b7280;
+        }
+        
+        .key-date {
+          font-size: 12px;
+          color: #9ca3af;
+        }
+        
+        .key-actions {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+          margin-left: 16px;
+        }
+        
+        .btn {
+          padding: 8px 16px;
+          border: 1px solid transparent;
+          border-radius: 6px;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+        }
+        
+        .btn-primary {
+          background: #2563eb;
+          color: white;
+          border-color: #2563eb;
+        }
+        
+        .btn-primary:hover {
+          background: #1d4ed8;
+          border-color: #1d4ed8;
+        }
+        
+        .btn-text {
+          background: transparent;
+          color: #6b7280;
+          border: none;
+          padding: 4px 8px;
+          font-size: 13px;
+        }
+        
+        .btn-text:hover {
+          color: #dc2626;
+        }
+        
+        .form-section {
+          margin-top: 32px;
+          padding-top: 24px;
+          border-top: 1px solid #e1e5e9;
+        }
+        
+        .form-group {
+          margin-bottom: 16px;
+        }
+        
+        .form-label {
+          display: block;
+          font-size: 14px;
+          font-weight: 500;
+          color: #374151;
+          margin-bottom: 6px;
+        }
+        
+        .form-input {
+          width: 100%;
+          padding: 10px 12px;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          font-size: 14px;
+          background: white;
+          transition: border-color 0.2s;
+        }
+        
+        .form-input:focus {
+          outline: none;
+          border-color: #2563eb;
+          box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+        }
+        
+        .form-help {
+          font-size: 12px;
+          color: #6b7280;
+          margin-top: 4px;
+        }
+        
+        .help-box {
+          background: #f0f9ff;
+          border: 1px solid #bae6fd;
+          border-radius: 6px;
+          padding: 16px;
+          margin-bottom: 20px;
+          font-size: 13px;
+          line-height: 1.6;
+        }
+        
+        .help-box a {
+          color: #2563eb;
+          text-decoration: none;
+        }
+        
+        .help-box a:hover {
+          text-decoration: underline;
+        }
+        
+        .empty-state {
+          text-align: center;
+          padding: 32px 16px;
+          color: #6b7280;
+          font-size: 14px;
+        }
+        
+        .footer {
+          padding: 24px 32px;
+          text-align: center;
+          border-top: 1px solid #e1e5e9;
+          background: #f8fafc;
+        }
+        
+        .footer-text {
+          font-size: 12px;
+          color: #9ca3af;
+        }
+        
+        .nav-link {
+          color: #6b7280;
+          text-decoration: none;
+          font-size: 14px;
+          margin-right: 16px;
+        }
+        
+        .nav-link:hover {
+          color: #2563eb;
+        }
+        
+        @media (max-width: 640px) {
+          body { padding: 12px; }
+          .container { margin: 0; }
+          .header { padding: 24px 24px 20px; }
+          .content { padding: 24px; }
+          .key-item { flex-direction: column; align-items: flex-start; gap: 12px; }
+          .key-actions { margin-left: 0; }
+        }
       </style>
     </head>
     <body>
-      ${
-        !isOAuthFlow
-          ? `
-        <div class="nav">
-          <a href="/">Home</a>
-          <a href="/logout">Logout</a>
+      <div class="container">
+        <div class="header">
+          <div class="logo">Simpler Auth</div>
+          <div class="subtitle">
+            ${isOAuthFlow ? 'Authorize API Access' : 'Manage Cloudflare Keys'}
+          </div>
         </div>
-      `
-          : ''
-      }
-
-      <h1>${isOAuthFlow ? 'Select Cloudflare API Key' : 'Manage Cloudflare API Keys'}</h1>
-      
-      <div class="user-info">
-        <img src="${user.avatar_url}" alt="${escapeHtml(
-      user.name || user.login
-    )}" width="40" height="40">
-        <strong>${escapeHtml(user.name || user.login)}</strong>
-      </div>
-
-      ${
-        isOAuthFlow
-          ? `
-        <div class="warning">
-          <strong>⚠️ Important:</strong> The selected API key will be provided directly to <strong>${escapeHtml(
-            clientId
-          )}</strong>. 
-          This gives them full access to your Cloudflare account with the permissions of this key. 
-          Only proceed if you trust this application.
-        </div>
-      `
-          : ''
-      }
-
-      ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
-
-      ${
-        keys.length > 0
-          ? `
-        <h2>Your API Keys</h2>
-        <form method="POST">
-          <input type="hidden" name="action" value="select">
-          ${keyOptions}
-        </form>
-      `
-          : ''
-      }
-
-      <div class="add-form">
-        <h3>Add New API Key</h3>
-        <div class="info">
-          <strong>How to get your Cloudflare API key:</strong><br>
-          1. Go to <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank">Cloudflare Dashboard → My Profile → API Tokens</a><br>
-          2. Click "Create Token" and choose "Custom token"<br>
-          3. Give it a name and select the permissions you want to grant<br>
-          4. Copy the token and your Account ID from the right sidebar
-        </div>
-
-        <form method="POST">
-          <input type="hidden" name="action" value="add">
+        
+        <div class="content">
+          ${
+            !isOAuthFlow
+              ? `
+            <div style="margin-bottom: 24px;">
+              <a href="/" class="nav-link">← Back to Home</a>
+              <a href="/logout" class="nav-link">Sign Out</a>
+            </div>
+          `
+              : ''
+          }
           
-          <div class="form-group">
-            <label for="name">Key Name (for your reference):</label>
-            <input type="text" id="name" name="name" required placeholder="e.g., My Website API Key">
+          <div class="user-info">
+            <img src="${user.avatar_url}" alt="${escapeHtml(user.name || user.login)}">
+            <div class="user-name">${escapeHtml(user.name || user.login)}</div>
           </div>
-
-          <div class="form-group">
-            <label for="accountId">Cloudflare Account ID:</label>
-            <input type="text" id="accountId" name="accountId" required placeholder="e.g., 1234567890abcdef1234567890abcdef">
+          
+          ${
+            isOAuthFlow
+              ? `
+            <div class="oauth-notice">
+              <strong>⚠️ Authorization Request</strong><br>
+              <span class="client-id">${escapeHtml(
+                clientId
+              )}</span> is requesting access to your Cloudflare account. 
+              Select an API key to grant access with those permissions.
+            </div>
+          `
+              : ''
+          }
+          
+          ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
+          
+          ${
+            keys.length > 0
+              ? `
+            <div class="section-title">Your API Keys</div>
+            <form method="POST">
+              <input type="hidden" name="action" value="select">
+              ${keyOptions}
+            </form>
+          `
+              : isOAuthFlow
+              ? `
+            <div class="empty-state">
+              <div style="font-size: 48px; margin-bottom: 16px;">🔐</div>
+              <div>No API keys found</div>
+              <div>Add your first Cloudflare API key below to continue</div>
+            </div>
+          `
+              : ''
+          }
+          
+          <div class="form-section">
+            <div class="section-title">Add New API Key</div>
+            
+            <div class="help-box">
+              <strong>How to create a Cloudflare API token:</strong><br>
+              1. Visit <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank">Cloudflare Dashboard → API Tokens</a><br>
+              2. Click "Create Token" → "Custom token"<br>
+              3. Set permissions and copy the token + Account ID
+            </div>
+            
+            <form method="POST">
+              <input type="hidden" name="action" value="add">
+              
+              <div class="form-group">
+                <label class="form-label" for="name">Key Name</label>
+                <input type="text" id="name" name="name" class="form-input" required 
+                       placeholder="e.g., My Website API Key">
+                <div class="form-help">A name to help you identify this key</div>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label" for="accountId">Account ID</label>
+                <input type="text" id="accountId" name="accountId" class="form-input" required 
+                       placeholder="1234567890abcdef1234567890abcdef">
+                <div class="form-help">Found in the right sidebar of your Cloudflare dashboard</div>
+              </div>
+              
+              <div class="form-group">
+                <label class="form-label" for="apiKey">API Token</label>
+                <input type="password" id="apiKey" name="apiKey" class="form-input" required 
+                       placeholder="Your API token">
+                <div class="form-help">The token you created in the Cloudflare dashboard</div>
+              </div>
+              
+              <button type="submit" class="btn btn-primary" style="width: 100%;">
+                Add API Key
+              </button>
+            </form>
           </div>
-
-          <div class="form-group">
-            <label for="apiKey">Cloudflare API Token:</label>
-            <input type="password" id="apiKey" name="apiKey" required placeholder="Your API token">
-          </div>
-
-          <button type="submit">Add API Key</button>
-        </form>
+        </div>
+        
+        <div class="footer">
+          <div class="footer-text">Powered by Simpler Auth</div>
+        </div>
       </div>
-
-      ${
-        keys.length === 0 && isOAuthFlow
-          ? `
-        <p style="text-align: center; color: #666; margin-top: 30px;">
-          Add your first API key above to continue.
-        </p>
-      `
-          : ''
-      }
     </body>
     </html>
   `,
