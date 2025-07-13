@@ -508,7 +508,6 @@ function showKeyManagementPageHTML(
       <div class="key-info">
         <div class="key-name">${escapeHtml(key.name)}</div>
         <div class="key-details">
-          <span class="account-id">${escapeHtml(key.accountId)}</span>
           <span class="key-date">Added ${new Date(key.createdAt).toLocaleDateString()}</span>
         </div>
       </div>
@@ -889,9 +888,9 @@ function showKeyManagementPageHTML(
             
             <div class="help-box">
               <strong>How to create a Cloudflare API token:</strong><br>
-              1. Visit <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank">Cloudflare Dashboard → API Tokens</a><br>
-              2. Click "Create Token" → "Custom token"<br>
-              3. Set permissions and copy the token + Account ID
+              1. Visit <a href="https://dash.cloudflare.com/?to=/:account/api-tokens" target="_blank">Cloudflare Dashboard → Manage Account → Account API Tokens</a><br>
+              2. Click "Create Token" and select a template or custom token with the scopes you need<br>
+              3. The account-id is in the URL
             </div>
             
             <form method="POST">
@@ -932,9 +931,7 @@ function showKeyManagementPageHTML(
     </body>
     </html>
   `,
-    {
-      headers: { 'Content-Type': 'text/html;charset=utf8' }
-    }
+    { headers: { 'Content-Type': 'text/html;charset=utf8' } }
   )
 }
 
