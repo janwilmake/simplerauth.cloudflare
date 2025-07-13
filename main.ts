@@ -1,238 +1,1339 @@
-import {
-  handleOAuth,
-  handleManagement,
-  getAccessToken,
-  CodeDO,
-  Env,
-  GitHubUser,
-} from "./cloudflare-oauth-provider";
+import { DurableObject } from 'cloudflare:workers'
 
-export { CodeDO };
+export interface Env {
+  GITHUB_CLIENT_ID: string
+  GITHUB_CLIENT_SECRET: string
+  UserDO: DurableObjectNamespace<UserDO>
+  CodeDO: DurableObjectNamespace<CodeDO>
+}
 
-export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
-    // Handle OAuth routes
-    const oauthResponse = await handleOAuth(request, env);
-    if (oauthResponse) return oauthResponse;
+interface OAuthState {
+  redirectTo?: string
+  codeVerifier: string
+  resource?: string
+  clientId?: string
+  originalState?: string
+  redirectUri?: string
+}
 
-    // Handle management routes
-    const managementResponse = await handleManagement(request, env);
-    if (managementResponse) return managementResponse;
+export interface GitHubUser {
+  id: number
+  login: string
+  name: string
+  email: string
+  avatar_url: string
+  [key: string]: any
+}
 
-    const url = new URL(request.url);
-    const path = url.pathname;
+export interface CloudflareAPIKey {
+  id: string
+  name: string
+  accountId: string
+  apiKey: string
+  createdAt: string
+  lastUsed?: string
+}
 
-    if (path === "/") {
-      return handleHome(request, env);
-    }
+export class UserDO extends DurableObject {
+  private storage: DurableObjectStorage
 
-    if (path === "/demo") {
-      return handleDemo(request, env);
-    }
-
-    return new Response("Not found", { status: 404 });
-  },
-} satisfies ExportedHandler<Env>;
-
-async function handleHome(request: Request, env: Env): Promise<Response> {
-  const accessToken = getAccessToken(request);
-
-  if (!accessToken) {
-    return new Response(
-      `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Login with Cloudflare</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>
-          body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-          .hero { text-align: center; padding: 40px 0; }
-          .hero h1 { color: #f38020; font-size: 3em; margin-bottom: 20px; }
-          .hero p { font-size: 1.2em; color: #666; margin-bottom: 30px; }
-          .cta { background: #f38020; color: white; padding: 15px 30px; border: none; border-radius: 8px; font-size: 1.1em; cursor: pointer; text-decoration: none; display: inline-block; }
-          .cta:hover { background: #e06d00; }
-          .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; margin: 40px 0; }
-          .feature { background: #f8f9fa; padding: 20px; border-radius: 8px; }
-          .feature h3 { color: #f38020; margin-bottom: 10px; }
-          .warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0; }
-          .warning strong { color: #856404; }
-          .code { background: #f8f9fa; padding: 15px; border-radius: 8px; font-family: monospace; margin: 10px 0; }
-        </style>
-      </head>
-      <body>
-        <div class="hero">
-          <h1>🔐 Login with Cloudflare</h1>
-          <p>Securely provide your Cloudflare API keys to trusted applications</p>
-          <a href="/authorize" class="cta">Get Started</a>
-        </div>
-
-        <div class="features">
-          <div class="feature">
-            <h3>🔒 Secure Authentication</h3>
-            <p>Login with your GitHub account, then securely manage your Cloudflare API keys.</p>
-          </div>
-          <div class="feature">
-            <h3>🎯 Selective Access</h3>
-            <p>Choose which API key to share with each application. Full control over your credentials.</p>
-          </div>
-          <div class="feature">
-            <h3>📊 Usage Tracking</h3>
-            <p>See when and how your API keys are being used by different applications.</p>
-          </div>
-        </div>
-
-        <div class="warning">
-          <strong>⚠️ Important:</strong> This service provides your actual Cloudflare API keys to applications. 
-          Only use with applications you completely trust. We recommend creating dedicated API tokens 
-          with limited permissions for each application.
-        </div>
-
-        <h2>How it works</h2>
-        <ol>
-          <li>Login with your GitHub account</li>
-          <li>Add your Cloudflare API keys and account IDs</li>
-          <li>When apps request access, choose which key to share</li>
-          <li>The app receives your API key directly</li>
-        </ol>
-
-        <h2>For Developers</h2>
-        <p>Integrate with Login with Cloudflare using standard OAuth 2.0:</p>
-        <div class="code">
-          # Authorization URL
-          https://cloudflare.simplerauth.com/authorize?client_id=yourdomain.com&redirect_uri=https://yourdomain.com/callback&response_type=code
-          
-          # Token exchange
-          POST https://cloudflare.simplerauth.com/token
-          Content-Type: application/x-www-form-urlencoded
-          
-          grant_type=authorization_code&code=AUTH_CODE&client_id=yourdomain.com&redirect_uri=https://yourdomain.com/callback
-        </div>
-        
-        <p>The token response includes:</p>
-        <div class="code">
-          {
-            "access_token": "...",
-            "token_type": "bearer",
-            "cloudflare_account_id": "account123",
-            "cloudflare_api_key": "token456",
-            "cloudflare_key_name": "My API Key"
-          }
-        </div>
-
-        <p><a href="/demo">Try the OAuth demo</a></p>
-      </body>
-      </html>
-    `,
-      {
-        headers: { "Content-Type": "text/html" },
-      },
-    );
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+    this.storage = state.storage
   }
 
-  // User is authenticated, show dashboard
-  const userDOId = env.CODES.idFromName(`user:${accessToken}`);
-  const userDO = env.CODES.get(userDOId);
-  const userData = await userDO.getUser();
-  const keys = await userDO.getCloudflareKeys();
+  async setUser(user: GitHubUser, githubAccessToken: string) {
+    await this.storage.put('user', user)
+    await this.storage.put('github_access_token', githubAccessToken)
+    await this.storage.put('last_login', new Date().toISOString())
+  }
+
+  async getUser(): Promise<{
+    user: GitHubUser
+    githubAccessToken: string
+    lastLogin: string
+  } | null> {
+    const user = await this.storage.get<GitHubUser>('user')
+    const githubAccessToken = await this.storage.get<string>('github_access_token')
+    const lastLogin = await this.storage.get<string>('last_login')
+
+    if (!user || !githubAccessToken) {
+      return null
+    }
+
+    return {
+      user,
+      githubAccessToken,
+      lastLogin: lastLogin || new Date().toISOString()
+    }
+  }
+
+  async addCloudflareKey(key: CloudflareAPIKey) {
+    const keys = (await this.storage.get<CloudflareAPIKey[]>('cloudflare_keys')) || []
+    keys.push(key)
+    await this.storage.put('cloudflare_keys', keys)
+  }
+
+  async getCloudflareKeys(): Promise<CloudflareAPIKey[]> {
+    return (await this.storage.get<CloudflareAPIKey[]>('cloudflare_keys')) || []
+  }
+
+  async updateKeyLastUsed(keyId: string) {
+    const keys = (await this.storage.get<CloudflareAPIKey[]>('cloudflare_keys')) || []
+    const keyIndex = keys.findIndex(k => k.id === keyId)
+    if (keyIndex !== -1) {
+      keys[keyIndex].lastUsed = new Date().toISOString()
+      await this.storage.put('cloudflare_keys', keys)
+    }
+  }
+
+  async removeCloudflareKey(keyId: string) {
+    const keys = (await this.storage.get<CloudflareAPIKey[]>('cloudflare_keys')) || []
+    const filteredKeys = keys.filter(k => k.id !== keyId)
+    await this.storage.put('cloudflare_keys', filteredKeys)
+  }
+
+  async updateGitHubToken(githubAccessToken: string) {
+    await this.storage.put('github_access_token', githubAccessToken)
+    await this.storage.put('last_login', new Date().toISOString())
+  }
+}
+
+export class CodeDO extends DurableObject {
+  private storage: DurableObjectStorage
+
+  constructor(state: DurableObjectState, env: Env) {
+    super(state, env)
+    this.storage = state.storage
+    // Set alarm for 10 minutes from now for auth codes
+    this.storage.setAlarm(Date.now() + 10 * 60 * 1000)
+  }
+
+  async alarm() {
+    await this.storage.deleteAll()
+  }
+
+  async setAuthData(
+    username: string,
+    githubAccessToken: string,
+    clientId: string,
+    redirectUri: string,
+    selectedKeyId?: string,
+    resource?: string
+  ) {
+    await this.storage.put('data', {
+      username,
+      github_access_token: githubAccessToken,
+      clientId,
+      redirectUri,
+      selectedKeyId,
+      resource
+    })
+  }
+
+  async getAuthData() {
+    return this.storage.get<{
+      username: string
+      github_access_token: string
+      clientId: string
+      redirectUri: string
+      selectedKeyId?: string
+      resource?: string
+    }>('data')
+  }
+}
+
+export async function handleOAuth(
+  request: Request,
+  env: Env,
+  scope = 'user:email',
+  sameSite: 'Strict' | 'Lax' = 'Lax'
+): Promise<Response | null> {
+  const url = new URL(request.url)
+  const path = url.pathname
+
+  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET || !env.UserDO || !env.CodeDO) {
+    return new Response(
+      `Environment misconfigured. Ensure to have GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET secrets set, as well as the USERS and CODES DO bindings.`,
+      { status: 500 }
+    )
+  }
+
+  // OAuth metadata endpoints
+  if (path === '/.well-known/oauth-authorization-server') {
+    return handleAuthorizationServerMetadata(request, env)
+  }
+
+  if (path === '/.well-known/oauth-protected-resource') {
+    return handleProtectedResourceMetadata(request, env)
+  }
+
+  if (path === '/token') {
+    return handleToken(request, env, scope)
+  }
+
+  if (path === '/authorize') {
+    return handleAuthorize(request, env, scope, sameSite)
+  }
+
+  if (path === '/callback') {
+    return handleCallback(request, env, sameSite)
+  }
+
+  if (path === '/logout') {
+    const url = new URL(request.url)
+    const redirectTo = url.searchParams.get('redirect_to') || '/'
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: redirectTo,
+        'Set-Cookie': `github_login=; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=0; Path=/`
+      }
+    })
+  }
+
+  return null
+}
+
+function handleAuthorizationServerMetadata(request: Request, env: Env): Response {
+  const url = new URL(request.url)
+  const baseUrl = `${url.protocol}//${url.host}`
+
+  const metadata = {
+    issuer: baseUrl,
+    authorization_endpoint: `${baseUrl}/authorize`,
+    token_endpoint: `${baseUrl}/token`,
+    response_types_supported: ['code'],
+    grant_types_supported: ['authorization_code'],
+    code_challenge_methods_supported: ['S256'],
+    scopes_supported: ['user:email'],
+    token_endpoint_auth_methods_supported: ['none']
+  }
+
+  return new Response(JSON.stringify(metadata), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    }
+  })
+}
+
+function handleProtectedResourceMetadata(request: Request, env: Env): Response {
+  const url = new URL(request.url)
+  const baseUrl = `${url.protocol}//${url.host}`
+
+  const metadata = {
+    resource: baseUrl,
+    authorization_servers: [baseUrl],
+    bearer_methods_supported: ['header'],
+    resource_documentation: `${baseUrl}`
+  }
+
+  return new Response(JSON.stringify(metadata), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+    }
+  })
+}
+
+async function handleAuthorize(
+  request: Request,
+  env: Env,
+  scope: string,
+  sameSite: string
+): Promise<Response> {
+  const url = new URL(request.url)
+  const clientId = url.searchParams.get('client_id')
+  let redirectUri = url.searchParams.get('redirect_uri')
+  const responseType = url.searchParams.get('response_type') || 'code'
+  const state = url.searchParams.get('state')
+  const resource = url.searchParams.get('resource')
+
+  // If no client_id, this is a direct login request
+  if (!clientId) {
+    const url = new URL(request.url)
+    const redirectTo = url.searchParams.get('redirect_to') || '/'
+    const resource = url.searchParams.get('resource')
+
+    // Check if user is already logged in
+    const username = getGitHubUsername(request)
+    if (username) {
+      // User is already logged in, redirect to destination
+      return new Response(null, {
+        status: 302,
+        headers: { Location: redirectTo }
+      })
+    }
+
+    // Generate PKCE code verifier and challenge
+    const codeVerifier = generateCodeVerifier()
+    const codeChallenge = await generateCodeChallenge(codeVerifier)
+
+    const state: OAuthState = { redirectTo, codeVerifier, resource }
+    const stateString = btoa(JSON.stringify(state))
+
+    // Build GitHub OAuth URL
+    const githubUrl = new URL('https://github.com/login/oauth/authorize')
+    githubUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID)
+    githubUrl.searchParams.set('redirect_uri', `${url.origin}/callback`)
+    githubUrl.searchParams.set('scope', scope)
+    githubUrl.searchParams.set('state', stateString)
+    githubUrl.searchParams.set('code_challenge', codeChallenge)
+    githubUrl.searchParams.set('code_challenge_method', 'S256')
+
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: githubUrl.toString(),
+        'Set-Cookie': `oauth_state=${encodeURIComponent(
+          stateString
+        )}; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=600; Path=/`
+      }
+    })
+  }
+
+  // Validate client_id
+  if (!isValidDomain(clientId) && clientId !== 'localhost') {
+    return new Response('Invalid client_id: must be a valid domain', {
+      status: 400
+    })
+  }
+
+  // If no redirect_uri provided, use default pattern
+  if (!redirectUri) {
+    redirectUri = `https://${clientId}/callback`
+  }
+
+  // Validate redirect_uri
+  try {
+    const redirectUrl = new URL(redirectUri)
+    if (redirectUrl.protocol !== 'https:' && clientId !== 'localhost') {
+      return new Response('Invalid redirect_uri: must use HTTPS', {
+        status: 400
+      })
+    }
+    if (redirectUrl.hostname !== clientId) {
+      return new Response('Invalid redirect_uri: must be on same origin as client_id', {
+        status: 400
+      })
+    }
+  } catch {
+    return new Response('Invalid redirect_uri format', { status: 400 })
+  }
+
+  // Only support authorization code flow
+  if (responseType !== 'code') {
+    return new Response('Unsupported response_type', { status: 400 })
+  }
+
+  // Check if user is already authenticated
+  const username = getGitHubUsername(request)
+  if (username) {
+    // User is authenticated, show key selection/management page
+    return await showKeyManagementPage(
+      request,
+      env,
+      clientId,
+      redirectUri,
+      state,
+      username,
+      resource
+    )
+  }
+
+  // User not authenticated, redirect to GitHub OAuth
+  const providerState = {
+    clientId,
+    redirectUri,
+    originalState: state,
+    resource
+  }
+
+  const providerStateString = btoa(JSON.stringify(providerState))
+
+  // Generate PKCE for GitHub OAuth
+  const codeVerifier = generateCodeVerifier()
+  const codeChallenge = await generateCodeChallenge(codeVerifier)
+
+  const githubState: OAuthState = {
+    redirectTo: url.pathname + url.search,
+    codeVerifier,
+    resource,
+    clientId,
+    originalState: state,
+    redirectUri
+  }
+
+  const githubStateString = btoa(JSON.stringify(githubState))
+
+  const githubUrl = new URL('https://github.com/login/oauth/authorize')
+  githubUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID)
+  githubUrl.searchParams.set('redirect_uri', `${url.origin}/callback`)
+  githubUrl.searchParams.set('scope', scope)
+  githubUrl.searchParams.set('state', githubStateString)
+  githubUrl.searchParams.set('code_challenge', codeChallenge)
+  githubUrl.searchParams.set('code_challenge_method', 'S256')
+
+  const headers = new Headers({ Location: githubUrl.toString() })
+  headers.append(
+    'Set-Cookie',
+    `oauth_state=${encodeURIComponent(
+      githubStateString
+    )}; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=600; Path=/`
+  )
+
+  return new Response(null, { status: 302, headers })
+}
+
+async function showKeyManagementPage(
+  request: Request,
+  env: Env,
+  clientId: string,
+  redirectUri: string,
+  state: string | null,
+  username: string,
+  resource?: string
+): Promise<Response> {
+  // Get user's data
+  const userDOId = env.UserDO.idFromName(`user:${username}`)
+  const userDO = env.UserDO.get(userDOId)
+  const userData = await userDO.getUser()
+  const keys = await userDO.getCloudflareKeys()
 
   if (!userData) {
-    return new Response("User not found", { status: 404 });
+    return new Response('User not found', { status: 404 })
   }
 
-  const { user } = userData;
+  const { user } = userData
+
+  // Handle form submission
+  if (request.method === 'POST') {
+    const formData = await request.formData()
+    const action = formData.get('action')
+
+    if (action === 'select') {
+      const selectedKeyId = formData.get('keyId')
+      if (selectedKeyId) {
+        return await createAuthCodeAndRedirect(
+          env,
+          clientId,
+          redirectUri,
+          state,
+          username,
+          userData.githubAccessToken,
+          selectedKeyId.toString(),
+          resource
+        )
+      }
+    }
+
+    if (action === 'add') {
+      const name = formData.get('name')?.toString()
+      const accountId = formData.get('accountId')?.toString()
+      const apiKey = formData.get('apiKey')?.toString()
+
+      if (!name || !accountId || !apiKey) {
+        return showKeyManagementPageHTML(user, keys, clientId, 'Missing required fields', true)
+      }
+
+      // Validate the API key by making a test request
+      const testResponse = await fetch(
+        `https://api.cloudflare.com/client/v4/accounts/${accountId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      )
+
+      if (!testResponse.ok) {
+        return showKeyManagementPageHTML(
+          user,
+          keys,
+          clientId,
+          'Invalid API key or Account ID',
+          true
+        )
+      }
+
+      const newKey: CloudflareAPIKey = {
+        id: crypto.randomUUID(),
+        name,
+        accountId,
+        apiKey,
+        createdAt: new Date().toISOString()
+      }
+
+      await userDO.addCloudflareKey(newKey)
+
+      // Redirect to same page to show updated keys
+      return new Response(null, {
+        status: 302,
+        headers: { Location: request.url }
+      })
+    }
+
+    if (action === 'delete') {
+      const keyId = formData.get('keyId')?.toString()
+      if (keyId) {
+        await userDO.removeCloudflareKey(keyId)
+        return new Response(null, {
+          status: 302,
+          headers: { Location: request.url }
+        })
+      }
+    }
+  }
+
+  return showKeyManagementPageHTML(user, keys, clientId, undefined, true)
+}
+
+function showKeyManagementPageHTML(
+  user: GitHubUser,
+  keys: CloudflareAPIKey[],
+  clientId: string,
+  error?: string,
+  isOAuthFlow = false
+): Response {
+  const keyOptions = keys
+    .map(
+      key => `
+    <div class="key-option">
+      <div class="key-info">
+        <div class="key-main">
+          <strong>${escapeHtml(key.name)}</strong>
+          <small class="key-account">Account ID: ${escapeHtml(key.accountId)}</small>
+        </div>
+        <div class="key-meta">
+          <small>Created: ${new Date(key.createdAt).toLocaleDateString()}</small>
+          ${
+            key.lastUsed
+              ? `<small>Last used: ${new Date(key.lastUsed).toLocaleDateString()}</small>`
+              : '<small>Never used</small>'
+          }
+        </div>
+      </div>
+      <div class="key-actions">
+        ${
+          isOAuthFlow
+            ? `<button type="submit" name="keyId" value="${key.id}" class="select-btn">Select</button>`
+            : ''
+        }
+        <form method="POST" style="display: inline;">
+          <input type="hidden" name="action" value="delete">
+          <input type="hidden" name="keyId" value="${key.id}">
+          <button type="submit" class="delete-btn" onclick="return confirm('Are you sure?')">×</button>
+        </form>
+      </div>
+    </div>
+  `
+    )
+    .join('')
 
   return new Response(
     `
     <!DOCTYPE html>
     <html>
     <head>
-      <title>Login with Cloudflare - Dashboard</title>
+      <title>${isOAuthFlow ? 'Select Cloudflare API Key' : 'Manage Cloudflare API Keys'}</title>
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <style>
-        body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-        .user-info { background: #f5f5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat { background: #f8f9fa; padding: 20px; border-radius: 8px; text-align: center; }
-        .stat-number { font-size: 2em; font-weight: bold; color: #f38020; }
-        .stat-label { color: #666; }
+        body { font-family: system-ui, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; }
+        .user-info { background: #f5f5f5; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; }
+        .user-info img { border-radius: 50%; margin-right: 15px; }
+        .key-option { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; }
+        .key-option:hover { background: #f9f9f9; }
+        .key-info { flex: 1; }
+        .key-main { margin-bottom: 5px; }
+        .key-meta { display: flex; gap: 15px; }
+        .key-meta small { color: #666; }
+        .key-account { color: #666; display: block; margin-top: 2px; }
+        .key-actions { display: flex; gap: 10px; align-items: center; }
+        .select-btn { background: #007bff; color: white; padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        .select-btn:hover { background: #0056b3; }
+        .delete-btn { background: #dc3545; color: white; border: none; width: 24px; height: 24px; border-radius: 50%; cursor: pointer; font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center; }
+        .delete-btn:hover { background: #c82333; }
+        .warning { background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin: 20px 0; }
+        .warning strong { color: #856404; }
+        .error { background: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; padding: 15px; border-radius: 8px; margin: 20px 0; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+        .add-form { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 30px; }
+        .add-form h3 { margin-top: 0; }
+        button { background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .info { background: #d1ecf1; color: #0c5460; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
         .nav { margin-bottom: 20px; }
         .nav a { color: #007bff; text-decoration: none; margin-right: 20px; }
         .nav a:hover { text-decoration: underline; }
-        .cta { background: #f38020; color: white; padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; }
-        .cta:hover { background: #e06d00; }
       </style>
     </head>
     <body>
-      <div class="nav">
-        <a href="/manage">Manage API Keys</a>
-        <a href="/demo">OAuth Demo</a>
-        <a href="/logout">Logout</a>
-      </div>
+      ${
+        !isOAuthFlow
+          ? `
+        <div class="nav">
+          <a href="/">Home</a>
+          <a href="/logout">Logout</a>
+        </div>
+      `
+          : ''
+      }
 
-      <h1>Dashboard</h1>
+      <h1>${isOAuthFlow ? 'Select Cloudflare API Key' : 'Manage Cloudflare API Keys'}</h1>
       
       <div class="user-info">
-        <img src="${user.avatar_url}" alt="${
+        <img src="${user.avatar_url}" alt="${escapeHtml(
       user.name || user.login
-    }" width="40" height="40" style="border-radius: 50%; vertical-align: middle; margin-right: 10px;">
-        <strong>${user.name || user.login}</strong>
+    )}" width="40" height="40">
+        <strong>${escapeHtml(user.name || user.login)}</strong>
       </div>
 
-      <div class="stats">
-        <div class="stat">
-          <div class="stat-number">${keys.length}</div>
-          <div class="stat-label">API Keys</div>
+      ${
+        isOAuthFlow
+          ? `
+        <div class="warning">
+          <strong>⚠️ Important:</strong> The selected API key will be provided directly to <strong>${escapeHtml(
+            clientId
+          )}</strong>. 
+          This gives them full access to your Cloudflare account with the permissions of this key. 
+          Only proceed if you trust this application.
         </div>
-        <div class="stat">
-          <div class="stat-number">${
-            keys.filter((k) => k.lastUsed).length
-          }</div>
-          <div class="stat-label">Used Keys</div>
-        </div>
-      </div>
+      `
+          : ''
+      }
 
-      <h2>Quick Actions</h2>
-      <p>
-        <a href="/manage" class="cta">Manage API Keys</a>
-        <a href="/demo" class="cta" style="background: #007bff; margin-left: 10px;">Test OAuth Flow</a>
-      </p>
+      ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
 
-      <h2>Recent Activity</h2>
       ${
         keys.length > 0
           ? `
-        <ul>
-          ${keys
-            .filter((k) => k.lastUsed)
-            .sort(
-              (a, b) =>
-                new Date(b.lastUsed!).getTime() -
-                new Date(a.lastUsed!).getTime(),
-            )
-            .slice(0, 5)
-            .map(
-              (key) => `
-            <li><strong>${key.name}</strong> - Last used ${new Date(
-                key.lastUsed!,
-              ).toLocaleDateString()}</li>
-          `,
-            )
-            .join("")}
-        </ul>
+        <h2>Your API Keys</h2>
+        <form method="POST">
+          <input type="hidden" name="action" value="select">
+          ${keyOptions}
+        </form>
       `
-          : '<p>No API keys added yet. <a href="/manage">Add your first key</a>.</p>'
+          : ''
+      }
+
+      <div class="add-form">
+        <h3>Add New API Key</h3>
+        <div class="info">
+          <strong>How to get your Cloudflare API key:</strong><br>
+          1. Go to <a href="https://dash.cloudflare.com/profile/api-tokens" target="_blank">Cloudflare Dashboard → My Profile → API Tokens</a><br>
+          2. Click "Create Token" and choose "Custom token"<br>
+          3. Give it a name and select the permissions you want to grant<br>
+          4. Copy the token and your Account ID from the right sidebar
+        </div>
+
+        <form method="POST">
+          <input type="hidden" name="action" value="add">
+          
+          <div class="form-group">
+            <label for="name">Key Name (for your reference):</label>
+            <input type="text" id="name" name="name" required placeholder="e.g., My Website API Key">
+          </div>
+
+          <div class="form-group">
+            <label for="accountId">Cloudflare Account ID:</label>
+            <input type="text" id="accountId" name="accountId" required placeholder="e.g., 1234567890abcdef1234567890abcdef">
+          </div>
+
+          <div class="form-group">
+            <label for="apiKey">Cloudflare API Token:</label>
+            <input type="password" id="apiKey" name="apiKey" required placeholder="Your API token">
+          </div>
+
+          <button type="submit">Add API Key</button>
+        </form>
+      </div>
+
+      ${
+        keys.length === 0 && isOAuthFlow
+          ? `
+        <p style="text-align: center; color: #666; margin-top: 30px;">
+          Add your first API key above to continue.
+        </p>
+      `
+          : ''
       }
     </body>
     </html>
   `,
     {
-      headers: { "Content-Type": "text/html" },
+      headers: { 'Content-Type': 'text/html;charset=utf8' }
+    }
+  )
+}
+
+async function createAuthCodeAndRedirect(
+  env: Env,
+  clientId: string,
+  redirectUri: string,
+  state: string | null,
+  username: string,
+  githubAccessToken: string,
+  selectedKeyId: string,
+  resource?: string
+): Promise<Response> {
+  // Generate auth code
+  const authCode = generateCodeVerifier()
+
+  // Create Durable Object for this auth code
+  const id = env.CodeDO.idFromName(`code:${authCode}`)
+  const authCodeDO = env.CodeDO.get(id)
+
+  await authCodeDO.setAuthData(
+    username,
+    githubAccessToken,
+    clientId,
+    redirectUri,
+    selectedKeyId,
+    resource
+  )
+
+  // Redirect back to client with auth code
+  const redirectUrl = new URL(redirectUri)
+  redirectUrl.searchParams.set('code', authCode)
+  if (state) {
+    redirectUrl.searchParams.set('state', state)
+  }
+
+  return new Response(null, {
+    status: 302,
+    headers: { Location: redirectUrl.toString() }
+  })
+}
+
+async function handleToken(request: Request, env: Env, scope: string): Promise<Response> {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+      }
+    })
+  }
+
+  if (request.method !== 'POST') {
+    return new Response('Method not allowed', {
+      status: 405,
+      headers: { 'Access-Control-Allow-Origin': '*' }
+    })
+  }
+
+  const headers = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*'
+  }
+
+  const formData = await request.formData()
+  const grantType = formData.get('grant_type')
+  const code = formData.get('code')
+  const clientId = formData.get('client_id')
+  const redirectUri = formData.get('redirect_uri')
+  const resource = formData.get('resource')
+
+  if (grantType !== 'authorization_code') {
+    return new Response(JSON.stringify({ error: 'unsupported_grant_type' }), {
+      status: 400,
+      headers
+    })
+  }
+
+  if (!code || !clientId) {
+    return new Response(JSON.stringify({ error: 'invalid_request' }), {
+      status: 400,
+      headers
+    })
+  }
+
+  // Validate client_id
+  if (!isValidDomain(clientId.toString()) && clientId.toString() !== 'localhost') {
+    return new Response(JSON.stringify({ error: 'invalid_client' }), {
+      status: 400,
+      headers
+    })
+  }
+
+  // Get auth code data
+  const id = env.CodeDO.idFromName(`code:${code.toString()}`)
+  const authCodeDO = env.CodeDO.get(id)
+  const authData = await authCodeDO.getAuthData()
+
+  if (!authData) {
+    return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+      status: 400,
+      headers
+    })
+  }
+
+  // Validate client_id and redirect_uri match
+  if (authData.clientId !== clientId || (redirectUri && authData.redirectUri !== redirectUri)) {
+    return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+      status: 400,
+      headers
+    })
+  }
+
+  // Validate resource parameter
+  if (resource && authData.resource !== resource) {
+    return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+      status: 400,
+      headers
+    })
+  }
+
+  // Get the selected Cloudflare API key
+  const userDOId = env.UserDO.idFromName(`user:${authData.username}`)
+  const userDO = env.UserDO.get(userDOId)
+  const keys = await userDO.getCloudflareKeys()
+  const selectedKey = keys.find(k => k.id === authData.selectedKeyId)
+
+  if (!selectedKey) {
+    return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+      status: 400,
+      headers
+    })
+  }
+
+  // Update last used timestamp
+  await userDO.updateKeyLastUsed(selectedKey.id)
+
+  // Generate a bearer token that represents this access
+  const bearerToken = await generateBearerToken(
+    authData.username,
+    selectedKey.id,
+    env.GITHUB_CLIENT_SECRET
+  )
+
+  // Return the Cloudflare API key details
+  return new Response(
+    JSON.stringify({
+      access_token: bearerToken,
+      token_type: 'bearer',
+      scope,
+      cloudflare_account_id: selectedKey.accountId,
+      cloudflare_api_key: selectedKey.apiKey,
+      cloudflare_key_name: selectedKey.name
+    }),
+    { headers }
+  )
+}
+
+async function handleCallback(request: Request, env: Env, sameSite: string): Promise<Response> {
+  const url = new URL(request.url)
+  const code = url.searchParams.get('code')
+  const stateParam = url.searchParams.get('state')
+
+  if (!code || !stateParam) {
+    return new Response('Missing code or state parameter', { status: 400 })
+  }
+
+  // Get state from cookie
+  const cookies = parseCookies(request.headers.get('Cookie') || '')
+  const stateCookie = cookies.oauth_state
+
+  if (!stateCookie || stateCookie !== stateParam) {
+    return new Response('Invalid state parameter', { status: 400 })
+  }
+
+  // Parse state
+  let state: OAuthState
+  try {
+    state = JSON.parse(atob(stateParam))
+  } catch {
+    return new Response('Invalid state format', { status: 400 })
+  }
+
+  // Exchange code for token with GitHub
+  const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json'
     },
-  );
+    body: JSON.stringify({
+      client_id: env.GITHUB_CLIENT_ID,
+      client_secret: env.GITHUB_CLIENT_SECRET,
+      code,
+      redirect_uri: `${url.origin}/callback`,
+      code_verifier: state.codeVerifier
+    })
+  })
+
+  const tokenData = (await tokenResponse.json()) as any
+
+  if (!tokenData.access_token) {
+    return new Response('Failed to get access token', { status: 400 })
+  }
+
+  // Get user info from GitHub
+  const userResponse = await fetch('https://api.github.com/user', {
+    headers: {
+      Authorization: `Bearer ${tokenData.access_token}`,
+      'User-Agent': 'CloudflareOAuthProvider'
+    }
+  })
+
+  if (!userResponse.ok) {
+    return new Response('Failed to get user info', { status: 400 })
+  }
+
+  const user = (await userResponse.json()) as GitHubUser
+
+  // Store user data by GitHub username
+  const userDOId = env.UserDO.idFromName(`user:${user.login}`)
+  const userDO = env.UserDO.get(userDOId)
+
+  // Check if user exists, if so just update token, otherwise create new
+  const existingUser = await userDO.getUser()
+  if (existingUser) {
+    await userDO.updateGitHubToken(tokenData.access_token)
+  } else {
+    await userDO.setUser(user, tokenData.access_token)
+  }
+
+  // Set login cookie with 90-day expiration
+  const maxAge = 90 * 24 * 60 * 60 // 90 days in seconds
+  const cookieValue = `${user.login}:${await generateLoginToken(
+    user.login,
+    env.GITHUB_CLIENT_SECRET
+  )}`
+
+  // Check if this was part of an OAuth provider flow
+  if (state.clientId) {
+    // Redirect back to the authorize endpoint to show key selection
+    const redirectUrl = new URL(`${url.origin}/authorize`)
+    redirectUrl.searchParams.set('client_id', state.clientId)
+    redirectUrl.searchParams.set('redirect_uri', state.redirectUri || '')
+    redirectUrl.searchParams.set('response_type', 'code')
+    if (state.originalState) {
+      redirectUrl.searchParams.set('state', state.originalState)
+    }
+    if (state.resource) {
+      redirectUrl.searchParams.set('resource', state.resource)
+    }
+
+    const headers = new Headers({ Location: redirectUrl.toString() })
+    headers.append(
+      'Set-Cookie',
+      `oauth_state=; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=0; Path=/`
+    )
+    headers.append(
+      'Set-Cookie',
+      `github_login=${cookieValue}; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=${maxAge}; Path=/`
+    )
+
+    return new Response(null, { status: 302, headers })
+  }
+
+  // Normal redirect (direct login)
+  const headers = new Headers({ Location: state.redirectTo || '/' })
+  headers.append(
+    'Set-Cookie',
+    `oauth_state=; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=0; Path=/`
+  )
+  headers.append(
+    'Set-Cookie',
+    `github_login=${cookieValue}; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=${maxAge}; Path=/`
+  )
+
+  return new Response(null, { status: 302, headers })
+}
+
+export function getGitHubUsername(request: Request): string | null {
+  const cookies = parseCookies(request.headers.get('Cookie') || '')
+  const githubLogin = cookies.github_login
+
+  if (!githubLogin) return null
+
+  const [username] = githubLogin.split(':')
+  return username
+}
+
+// Management routes
+export async function handleManagement(request: Request, env: Env): Promise<Response | null> {
+  const url = new URL(request.url)
+  const path = url.pathname
+
+  if (path === '/manage') {
+    const username = getGitHubUsername(request)
+    if (!username) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: '/authorize?redirect_to=/manage' }
+      })
+    }
+
+    const userDOId = env.UserDO.idFromName(`user:${username}`)
+    const userDO = env.UserDO.get(userDOId)
+    const userData = await userDO.getUser()
+    const keys = await userDO.getCloudflareKeys()
+
+    if (!userData) {
+      return new Response('User not found', { status: 404 })
+    }
+
+    if (request.method === 'POST') {
+      const formData = await request.formData()
+      const action = formData.get('action')
+
+      if (action === 'add') {
+        const name = formData.get('name')?.toString()
+        const accountId = formData.get('accountId')?.toString()
+        const apiKey = formData.get('apiKey')?.toString()
+
+        if (!name || !accountId || !apiKey) {
+          return showKeyManagementPageHTML(userData.user, keys, '', 'Missing required fields')
+        }
+
+        // Validate the API key by making a test request
+        const testResponse = await fetch(
+          `https://api.cloudflare.com/client/v4/accounts/${accountId}`,
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json'
+            }
+          }
+        )
+
+        if (!testResponse.ok) {
+          return showKeyManagementPageHTML(userData.user, keys, '', 'Invalid API key or Account ID')
+        }
+
+        const newKey: CloudflareAPIKey = {
+          id: crypto.randomUUID(),
+          name,
+          accountId,
+          apiKey,
+          createdAt: new Date().toISOString()
+        }
+
+        await userDO.addCloudflareKey(newKey)
+        return new Response(null, {
+          status: 302,
+          headers: { Location: '/manage' }
+        })
+      }
+
+      if (action === 'delete') {
+        const keyId = formData.get('keyId')?.toString()
+        if (keyId) {
+          await userDO.removeCloudflareKey(keyId)
+        }
+        return new Response(null, {
+          status: 302,
+          headers: { Location: '/manage' }
+        })
+      }
+    }
+
+    return showKeyManagementPageHTML(userData.user, keys, '', undefined, false)
+  }
+
+  return null
+}
+
+// Utility functions
+function parseCookies(cookieHeader: string): Record<string, string> {
+  const cookies: Record<string, string> = {}
+  cookieHeader.split(';').forEach(cookie => {
+    const [name, value] = cookie.trim().split('=')
+    if (name && value) {
+      cookies[name] = decodeURIComponent(value)
+    }
+  })
+  return cookies
+}
+
+function isValidDomain(domain: string): boolean {
+  const domainRegex =
+    /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
+  return domainRegex.test(domain) && domain.includes('.') && domain.length <= 253
+}
+
+function generateCodeVerifier(): string {
+  const array = new Uint8Array(32)
+  crypto.getRandomValues(array)
+  return btoa(String.fromCharCode.apply(null, Array.from(array)))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '')
+}
+
+async function generateCodeChallenge(verifier: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(verifier)
+  const digest = await crypto.subtle.digest('SHA-256', data)
+  return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(digest))))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '')
+}
+
+async function generateLoginToken(username: string, secret: string): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(`${username}:${Date.now()}`)
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const signature = await crypto.subtle.sign('HMAC', keyMaterial, data)
+  return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(signature))))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '')
+}
+
+async function generateBearerToken(
+  username: string,
+  keyId: string,
+  secret: string
+): Promise<string> {
+  const encoder = new TextEncoder()
+  const data = encoder.encode(`${username}:${keyId}:${Date.now()}`)
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  )
+  const signature = await crypto.subtle.sign('HMAC', keyMaterial, data)
+  return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(signature))))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '')
+}
+
+// Simple HTML escaping for server-side
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+export default {
+  async fetch(request: Request, env: Env): Promise<Response> {
+    // Handle OAuth routes
+    const oauthResponse = await handleOAuth(request, env)
+    if (oauthResponse) return oauthResponse
+
+    // Handle management routes
+    const managementResponse = await handleManagement(request, env)
+    if (managementResponse) return managementResponse
+
+    const url = new URL(request.url)
+    const path = url.pathname
+
+    if (path === '/' || path === '/README.md') {
+      return handleHome(request, env)
+    }
+
+    if (path === '/demo') {
+      return handleDemo(request, env)
+    }
+
+    return new Response('Not found', { status: 404 })
+  }
+} satisfies ExportedHandler<Env>
+
+async function handleHome(request: Request, env: Env): Promise<Response> {
+  const username = getGitHubUsername(request)
+  const url = new URL(request.url)
+  const baseUrl = `${url.protocol}//${url.host}`
+
+  const readme = `# Login with Cloudflare
+
+Securely provide your Cloudflare API keys to trusted applications through OAuth 2.0.
+
+## For Users
+
+${
+  username
+    ? `**Welcome back, ${username}!**
+
+- [Manage your API keys](/manage)
+- [Try OAuth demo](/demo)
+- [Logout](/logout)
+
+`
+    : `**Get Started:**
+
+1. [Login with GitHub](/authorize) to get started
+2. Add your Cloudflare API keys
+3. Grant access to trusted applications
+
+`
+}## For Developers
+
+Integrate "Login with Cloudflare" into your application using standard OAuth 2.0 flow:
+
+### Step 1: Authorization Request
+
+Redirect users to the authorization endpoint:
+
+\`\`\`
+${baseUrl}/authorize?client_id=yourdomain.com&redirect_uri=https://yourdomain.com/callback&response_type=code&state=random-state-string
+\`\`\`
+
+**Parameters:**
+- \`client_id\`: Your domain (e.g., \`yourdomain.com\`)
+- \`redirect_uri\`: Where to redirect after authorization (must be HTTPS and on same domain)
+- \`response_type\`: Must be \`code\`
+- \`state\`: Random string to prevent CSRF attacks
+
+### Step 2: Handle Authorization Code
+
+After user grants access, they'll be redirected to your \`redirect_uri\` with:
+- \`code\`: Authorization code to exchange for access token
+- \`state\`: The same state parameter you sent
+
+### Step 3: Exchange Code for Token
+
+Make a POST request to exchange the authorization code:
+
+\`\`\`bash
+curl -X POST ${baseUrl}/token \\
+  -H "Content-Type: application/x-www-form-urlencoded" \\
+  -d "grant_type=authorization_code&code=AUTH_CODE&client_id=yourdomain.com&redirect_uri=https://yourdomain.com/callback"
+\`\`\`
+
+**Response:**
+\`\`\`json
+{
+  "access_token": "bearer-token-here",
+  "token_type": "bearer",
+  "scope": "user:email",
+  "cloudflare_account_id": "account123",
+  "cloudflare_api_key": "token456",
+  "cloudflare_key_name": "My API Key"
+}
+\`\`\`
+
+### Step 4: Use Cloudflare API
+
+Use the provided credentials to access Cloudflare APIs:
+
+\`\`\`bash
+curl -X GET https://api.cloudflare.com/client/v4/zones \\
+  -H "Authorization: Bearer token456" \\
+  -H "Content-Type: application/json"
+\`\`\`
+
+## Implementation Examples
+
+### JavaScript/Node.js
+
+\`\`\`javascript
+// Redirect to authorization
+const authUrl = new URL('${baseUrl}/authorize');
+authUrl.searchParams.set('client_id', 'yourdomain.com');
+authUrl.searchParams.set('redirect_uri', 'https://yourdomain.com/callback');
+authUrl.searchParams.set('response_type', 'code');
+authUrl.searchParams.set('state', generateRandomState());
+window.location.href = authUrl.toString();
+
+// Handle callback
+app.get('/callback', async (req, res) => {
+  const { code, state } = req.query;
+  
+  const response = await fetch('${baseUrl}/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      client_id: 'yourdomain.com',
+      redirect_uri: 'https://yourdomain.com/callback'
+    })
+  });
+  
+  const data = await response.json();
+  // Use data.cloudflare_api_key and data.cloudflare_account_id
+});
+\`\`\`
+
+### Python
+
+\`\`\`python
+import requests
+
+# Exchange code for token
+response = requests.post('${baseUrl}/token', data={
+    'grant_type': 'authorization_code',
+    'code': auth_code,
+    'client_id': 'yourdomain.com',
+    'redirect_uri': 'https://yourdomain.com/callback'
+})
+
+token_data = response.json()
+api_key = token_data['cloudflare_api_key']
+account_id = token_data['cloudflare_account_id']
+
+# Use Cloudflare API
+cf_response = requests.get(
+    'https://api.cloudflare.com/client/v4/zones',
+    headers={
+        'Authorization': f'Bearer {api_key}',
+        'Content-Type': 'application/json'
+    }
+)
+\`\`\`
+
+## Security Considerations
+
+⚠️ **Important**: This service provides users' actual Cloudflare API keys to your application. Only use this for applications you completely trust.
+
+**Best practices:**
+- Create dedicated API tokens with minimal required permissions
+- Use separate keys for different applications
+- Regularly rotate API keys
+- Monitor key usage through the management interface
+
+## OAuth 2.0 Discovery
+
+This service supports OAuth 2.0 discovery endpoints:
+
+- Authorization Server Metadata: \`${baseUrl}/.well-known/oauth-authorization-server\`
+- Protected Resource Metadata: \`${baseUrl}/.well-known/oauth-protected-resource\`
+
+## Support
+
+- GitHub: [Report issues](https://github.com/your-repo/issues)
+- Documentation: [Full API reference](https://your-docs.com)
+
+---
+
+*Powered by Cloudflare Workers and Durable Objects*`
+
+  return new Response(readme, {
+    headers: { 'Content-Type': 'text/markdown; charset=utf-8' }
+  })
 }
 
 async function handleDemo(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url)
+  const baseUrl = `${url.protocol}//${url.host}`
+
   return new Response(
     `
     <!DOCTYPE html>
@@ -275,7 +1376,7 @@ async function handleDemo(request: Request, env: Env): Promise<Response> {
 
       <h2>Implementation Example</h2>
       <div class="code">// 1. Redirect user to authorize endpoint
-const authUrl = new URL('https://cloudflare.simplerauth.com/authorize');
+const authUrl = new URL('${baseUrl}/authorize');
 authUrl.searchParams.set('client_id', 'yourdomain.com');
 authUrl.searchParams.set('redirect_uri', 'https://yourdomain.com/callback');
 authUrl.searchParams.set('response_type', 'code');
@@ -283,7 +1384,7 @@ authUrl.searchParams.set('state', 'random-state-string');
 window.location.href = authUrl.toString();
 
 // 2. Handle callback and exchange code for token
-const response = await fetch('https://cloudflare.simplerauth.com/token', {
+const response = await fetch('${baseUrl}/token', {
   method: 'POST',
   headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
   body: new URLSearchParams({
@@ -303,7 +1404,7 @@ const data = await response.json();
         const REDIRECT_URI = window.location.origin + '/demo';
 
         function startOAuth() {
-          const authUrl = new URL('${new URL(request.url).origin}/authorize');
+          const authUrl = new URL('${baseUrl}/authorize');
           authUrl.searchParams.set('client_id', CLIENT_ID);
           authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
           authUrl.searchParams.set('response_type', 'code');
@@ -320,9 +1421,7 @@ const data = await response.json();
 
           if (code) {
             try {
-              const response = await fetch('${
-                new URL(request.url).origin
-              }/token', {
+              const response = await fetch('${baseUrl}/token', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: new URLSearchParams({
@@ -373,8 +1472,6 @@ const data = await response.json();
     </body>
     </html>
   `,
-    {
-      headers: { "Content-Type": "text/html" },
-    },
-  );
+    { headers: { 'Content-Type': 'text/html;charset=utf8' } }
+  )
 }
