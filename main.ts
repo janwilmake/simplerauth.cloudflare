@@ -257,7 +257,11 @@ async function handleAuthorize(
   const responseType = url.searchParams.get('response_type') || 'code'
   const state = url.searchParams.get('state')
   const resource = url.searchParams.get('resource')
-  const message = url.searchParams.get('message') // New parameter
+  let message = url.searchParams.get('message') // New parameter
+
+  if (message) {
+    message = sanitizeMessage(message)
+  }
 
   // If no client_id, this is a direct login request
   if (!clientId) {
@@ -1383,11 +1387,6 @@ function isValidMessage(message: string): boolean {
     return false
   }
 
-  // Check for script content
-  if (/script|javascript|data:|vbscript|onload|onerror|onclick/i.test(message)) {
-    return false
-  }
-
   // Check for URLs (basic detection)
   if (/https?:\/\/|www\.|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i.test(message)) {
     return false
@@ -1396,9 +1395,13 @@ function isValidMessage(message: string): boolean {
   return true
 }
 
-function sanitizeMessage(message: string): string {
-  // Additional sanitization for display
-  return escapeHtml(message).replace(/\n/g, '<br>').substring(0, 500) // Truncate if too long
+export function sanitizeMessage(message: string): string {
+  return message
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
 function generateCodeVerifier(): string {
