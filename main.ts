@@ -1,117 +1,124 @@
-import { DurableObject } from 'cloudflare:workers'
+import { DurableObject } from "cloudflare:workers";
 
 export interface Env {
-  GITHUB_CLIENT_ID: string
-  GITHUB_CLIENT_SECRET: string
-  UserDO: DurableObjectNamespace<UserDO>
-  CodeDO: DurableObjectNamespace<CodeDO>
+  GITHUB_CLIENT_ID: string;
+  GITHUB_CLIENT_SECRET: string;
+  UserDO: DurableObjectNamespace<UserDO>;
+  CodeDO: DurableObjectNamespace<CodeDO>;
 }
 
 interface OAuthState {
-  redirectTo?: string
-  codeVerifier: string
-  resource?: string
-  clientId?: string
-  originalState?: string
-  redirectUri?: string
-  message?: string
+  redirectTo?: string;
+  codeVerifier: string;
+  resource?: string;
+  clientId?: string;
+  originalState?: string;
+  redirectUri?: string;
+  message?: string;
 }
 
 export interface GitHubUser {
-  id: number
-  login: string
-  name: string
-  email: string
-  avatar_url: string
-  [key: string]: any
+  id: number;
+  login: string;
+  name: string;
+  email: string;
+  avatar_url: string;
+  [key: string]: any;
 }
 
 export interface CloudflareAPIKey {
-  id: string
-  name: string
-  accountId: string
-  apiKey: string
-  createdAt: string
-  lastUsed?: string
+  id: string;
+  name: string;
+  accountId: string;
+  apiKey: string;
+  createdAt: string;
+  lastUsed?: string;
 }
 
 export class UserDO extends DurableObject {
-  private storage: DurableObjectStorage
+  private storage: DurableObjectStorage;
 
   constructor(state: DurableObjectState, env: Env) {
-    super(state, env)
-    this.storage = state.storage
+    super(state, env);
+    this.storage = state.storage;
   }
 
   async setUser(user: GitHubUser, githubAccessToken: string) {
-    await this.storage.put('user', user)
-    await this.storage.put('github_access_token', githubAccessToken)
-    await this.storage.put('last_login', new Date().toISOString())
+    await this.storage.put("user", user);
+    await this.storage.put("github_access_token", githubAccessToken);
+    await this.storage.put("last_login", new Date().toISOString());
   }
 
   async getUser(): Promise<{
-    user: GitHubUser
-    githubAccessToken: string
-    lastLogin: string
+    user: GitHubUser;
+    githubAccessToken: string;
+    lastLogin: string;
   } | null> {
-    const user = await this.storage.get<GitHubUser>('user')
-    const githubAccessToken = await this.storage.get<string>('github_access_token')
-    const lastLogin = await this.storage.get<string>('last_login')
+    const user = await this.storage.get<GitHubUser>("user");
+    const githubAccessToken = await this.storage.get<string>(
+      "github_access_token"
+    );
+    const lastLogin = await this.storage.get<string>("last_login");
 
     if (!user || !githubAccessToken) {
-      return null
+      return null;
     }
 
     return {
       user,
       githubAccessToken,
-      lastLogin: lastLogin || new Date().toISOString()
-    }
+      lastLogin: lastLogin || new Date().toISOString(),
+    };
   }
 
   async addCloudflareKey(key: CloudflareAPIKey) {
-    const keys = (await this.storage.get<CloudflareAPIKey[]>('cloudflare_keys')) || []
-    keys.push(key)
-    await this.storage.put('cloudflare_keys', keys)
+    const keys =
+      (await this.storage.get<CloudflareAPIKey[]>("cloudflare_keys")) || [];
+    keys.push(key);
+    await this.storage.put("cloudflare_keys", keys);
   }
 
   async getCloudflareKeys(): Promise<CloudflareAPIKey[]> {
-    return (await this.storage.get<CloudflareAPIKey[]>('cloudflare_keys')) || []
+    return (
+      (await this.storage.get<CloudflareAPIKey[]>("cloudflare_keys")) || []
+    );
   }
 
   async updateKeyLastUsed(keyId: string) {
-    const keys = (await this.storage.get<CloudflareAPIKey[]>('cloudflare_keys')) || []
-    const keyIndex = keys.findIndex(k => k.id === keyId)
+    const keys =
+      (await this.storage.get<CloudflareAPIKey[]>("cloudflare_keys")) || [];
+    const keyIndex = keys.findIndex((k) => k.id === keyId);
     if (keyIndex !== -1) {
-      keys[keyIndex].lastUsed = new Date().toISOString()
-      await this.storage.put('cloudflare_keys', keys)
+      keys[keyIndex].lastUsed = new Date().toISOString();
+      await this.storage.put("cloudflare_keys", keys);
     }
   }
 
   async removeCloudflareKey(keyId: string) {
-    const keys = (await this.storage.get<CloudflareAPIKey[]>('cloudflare_keys')) || []
-    const filteredKeys = keys.filter(k => k.id !== keyId)
-    await this.storage.put('cloudflare_keys', filteredKeys)
+    const keys =
+      (await this.storage.get<CloudflareAPIKey[]>("cloudflare_keys")) || [];
+    const filteredKeys = keys.filter((k) => k.id !== keyId);
+    await this.storage.put("cloudflare_keys", filteredKeys);
   }
 
   async updateGitHubToken(githubAccessToken: string) {
-    await this.storage.put('github_access_token', githubAccessToken)
-    await this.storage.put('last_login', new Date().toISOString())
+    await this.storage.put("github_access_token", githubAccessToken);
+    await this.storage.put("last_login", new Date().toISOString());
   }
 }
 
 export class CodeDO extends DurableObject {
-  private storage: DurableObjectStorage
+  private storage: DurableObjectStorage;
 
   constructor(state: DurableObjectState, env: Env) {
-    super(state, env)
-    this.storage = state.storage
+    super(state, env);
+    this.storage = state.storage;
     // Set alarm for 10 minutes from now for auth codes
-    this.storage.setAlarm(Date.now() + 10 * 60 * 1000)
+    this.storage.setAlarm(Date.now() + 10 * 60 * 1000);
   }
 
   async alarm() {
-    await this.storage.deleteAll()
+    await this.storage.deleteAll();
   }
 
   async setAuthData(
@@ -123,126 +130,228 @@ export class CodeDO extends DurableObject {
     resource?: string,
     message?: string
   ) {
-    await this.storage.put('data', {
+    await this.storage.put("data", {
       username,
       github_access_token: githubAccessToken,
       clientId,
       redirectUri,
       selectedKeyId,
       resource,
-      message
-    })
+      message,
+    });
   }
 
   async getAuthData() {
     return this.storage.get<{
-      username: string
-      github_access_token: string
-      clientId: string
-      redirectUri: string
-      selectedKeyId?: string
-      resource?: string
-      message?: string
-    }>('data')
+      username: string;
+      github_access_token: string;
+      clientId: string;
+      redirectUri: string;
+      selectedKeyId?: string;
+      resource?: string;
+      message?: string;
+    }>("data");
   }
 }
 
 export async function handleOAuth(
   request: Request,
   env: Env,
-  scope = 'user:email',
-  sameSite: 'Strict' | 'Lax' = 'Lax'
+  scope = "user:email",
+  sameSite: "Strict" | "Lax" = "Lax"
 ): Promise<Response | null> {
-  const url = new URL(request.url)
-  const path = url.pathname
+  const url = new URL(request.url);
+  const path = url.pathname;
 
-  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET || !env.UserDO || !env.CodeDO) {
+  if (
+    !env.GITHUB_CLIENT_ID ||
+    !env.GITHUB_CLIENT_SECRET ||
+    !env.UserDO ||
+    !env.CodeDO
+  ) {
     return new Response(
       `Environment misconfigured. Ensure to have GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET secrets set, as well as the USERS and CODES DO bindings.`,
       { status: 500 }
-    )
+    );
   }
 
   // OAuth metadata endpoints
-  if (path === '/.well-known/oauth-authorization-server') {
-    return handleAuthorizationServerMetadata(request, env)
+  if (path === "/.well-known/oauth-authorization-server") {
+    return handleAuthorizationServerMetadata(request, env);
   }
 
-  if (path === '/.well-known/oauth-protected-resource') {
-    return handleProtectedResourceMetadata(request, env)
+  if (path === "/.well-known/oauth-protected-resource") {
+    return handleProtectedResourceMetadata(request, env);
   }
 
-  if (path === '/token') {
-    return handleToken(request, env, scope)
+  if (path === "/token") {
+    return handleToken(request, env, scope);
   }
 
-  if (path === '/authorize') {
-    return handleAuthorize(request, env, scope, sameSite)
+  if (path === "/authorize") {
+    return handleAuthorize(request, env, scope, sameSite);
   }
 
-  if (path === '/callback') {
-    return handleCallback(request, env, sameSite)
+  if (path === "/callback") {
+    return handleCallback(request, env, sameSite);
   }
 
-  if (path === '/logout') {
-    const url = new URL(request.url)
-    const redirectTo = url.searchParams.get('redirect_to') || '/'
+  if (path === "/logout") {
+    const url = new URL(request.url);
+    const redirectTo = url.searchParams.get("redirect_to") || "/";
     return new Response(null, {
       status: 302,
       headers: {
         Location: redirectTo,
-        'Set-Cookie': `github_login=; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=0; Path=/`
-      }
-    })
+        "Set-Cookie": `github_login=; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=0; Path=/`,
+      },
+    });
   }
 
-  return null
+  if (path === "/register") {
+    if (request.method !== "POST") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+
+    try {
+      const body = await request.json<{ redirect_uris: string[] }>();
+
+      // Validate redirect_uris is present and is an array
+      if (
+        !body.redirect_uris ||
+        !Array.isArray(body.redirect_uris) ||
+        body.redirect_uris.length === 0
+      ) {
+        return new Response(
+          JSON.stringify({
+            error: "invalid_client_metadata",
+            error_description: "redirect_uris must be a non-empty array",
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      // Extract hosts from all redirect URIs
+      const hosts = new Set();
+      for (const uri of body.redirect_uris) {
+        try {
+          const url = new URL(uri);
+          hosts.add(url.host);
+        } catch (e) {
+          return new Response(
+            JSON.stringify({
+              error: "invalid_redirect_uri",
+              error_description: `Invalid redirect URI: ${uri}`,
+            }),
+            {
+              status: 400,
+              headers: { "Content-Type": "application/json" },
+            }
+          );
+        }
+      }
+
+      // Ensure all redirect URIs have the same host
+      if (hosts.size !== 1) {
+        return new Response(
+          JSON.stringify({
+            error: "invalid_client_metadata",
+            error_description: "All redirect URIs must have the same host",
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+      }
+
+      const clientHost = Array.from(hosts)[0];
+
+      // Response with client_id as the host
+      const response = {
+        client_id: clientHost,
+        redirect_uris: body.redirect_uris,
+        token_endpoint_auth_method: "none", // Public client, no secret needed
+        grant_types: ["authorization_code"],
+        response_types: ["code"],
+      };
+
+      return new Response(JSON.stringify(response, null, 2), {
+        status: 201,
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-store",
+          Pragma: "no-cache",
+        },
+      });
+    } catch (error) {
+      return new Response(
+        JSON.stringify({
+          error: "invalid_client_metadata",
+          error_description: "Invalid JSON in request body",
+        }),
+        {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+    }
+  }
+
+  return null;
 }
 
-function handleAuthorizationServerMetadata(request: Request, env: Env): Response {
-  const url = new URL(request.url)
-  const baseUrl = `${url.protocol}//${url.host}`
+function handleAuthorizationServerMetadata(
+  request: Request,
+  env: Env
+): Response {
+  const url = new URL(request.url);
+  const baseUrl = `${url.protocol}//${url.host}`;
 
   const metadata = {
     issuer: baseUrl,
     authorization_endpoint: `${baseUrl}/authorize`,
     token_endpoint: `${baseUrl}/token`,
-    response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code'],
-    code_challenge_methods_supported: ['S256'],
-    scopes_supported: ['user:email'],
-    token_endpoint_auth_methods_supported: ['none']
-  }
+    registration_endpoint: `${url.origin}/register`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code"],
+    code_challenge_methods_supported: ["S256"],
+    scopes_supported: ["user:email"],
+    token_endpoint_auth_methods_supported: ["none"],
+  };
 
   return new Response(JSON.stringify(metadata), {
     headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-    }
-  })
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
 }
 
 function handleProtectedResourceMetadata(request: Request, env: Env): Response {
-  const url = new URL(request.url)
-  const baseUrl = `${url.protocol}//${url.host}`
+  const url = new URL(request.url);
+  const baseUrl = `${url.protocol}//${url.host}`;
 
   const metadata = {
     resource: baseUrl,
     authorization_servers: [baseUrl],
-    bearer_methods_supported: ['header'],
-    resource_documentation: `${baseUrl}`
-  }
+    bearer_methods_supported: ["header"],
+    resource_documentation: `${baseUrl}`,
+  };
 
   return new Response(JSON.stringify(metadata), {
     headers: {
-      'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-    }
-  })
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "GET, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    },
+  });
 }
 
 async function handleAuthorize(
@@ -251,105 +360,108 @@ async function handleAuthorize(
   scope: string,
   sameSite: string
 ): Promise<Response> {
-  const url = new URL(request.url)
-  const clientId = url.searchParams.get('client_id')
-  let redirectUri = url.searchParams.get('redirect_uri')
-  const responseType = url.searchParams.get('response_type') || 'code'
-  const state = url.searchParams.get('state')
-  const resource = url.searchParams.get('resource')
-  let message = url.searchParams.get('message') // New parameter
+  const url = new URL(request.url);
+  const clientId = url.searchParams.get("client_id");
+  let redirectUri = url.searchParams.get("redirect_uri");
+  const responseType = url.searchParams.get("response_type") || "code";
+  const state = url.searchParams.get("state");
+  const resource = url.searchParams.get("resource");
+  let message = url.searchParams.get("message"); // New parameter
 
   if (message) {
-    message = sanitizeMessage(message)
+    message = sanitizeMessage(message);
   }
 
   // If no client_id, this is a direct login request
   if (!clientId) {
-    const url = new URL(request.url)
-    const redirectTo = url.searchParams.get('redirect_to') || '/'
-    const resource = url.searchParams.get('resource')
-    const message = url.searchParams.get('message')
+    const url = new URL(request.url);
+    const redirectTo = url.searchParams.get("redirect_to") || "/";
+    const resource = url.searchParams.get("resource");
+    const message = url.searchParams.get("message");
 
     // Check if user is already logged in
-    const username = getGitHubUsername(request)
+    const username = getGitHubUsername(request);
     if (username) {
       // User is already logged in, redirect to destination
       return new Response(null, {
         status: 302,
-        headers: { Location: redirectTo }
-      })
+        headers: { Location: redirectTo },
+      });
     }
 
     // Generate PKCE code verifier and challenge
-    const codeVerifier = generateCodeVerifier()
-    const codeChallenge = await generateCodeChallenge(codeVerifier)
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
 
-    const state: OAuthState = { redirectTo, codeVerifier, resource, message }
-    const stateString = btoa(JSON.stringify(state))
+    const state: OAuthState = { redirectTo, codeVerifier, resource, message };
+    const stateString = btoa(JSON.stringify(state));
 
     // Build GitHub OAuth URL
-    const githubUrl = new URL('https://github.com/login/oauth/authorize')
-    githubUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID)
-    githubUrl.searchParams.set('redirect_uri', `${url.origin}/callback`)
-    githubUrl.searchParams.set('scope', scope)
-    githubUrl.searchParams.set('state', stateString)
-    githubUrl.searchParams.set('code_challenge', codeChallenge)
-    githubUrl.searchParams.set('code_challenge_method', 'S256')
+    const githubUrl = new URL("https://github.com/login/oauth/authorize");
+    githubUrl.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
+    githubUrl.searchParams.set("redirect_uri", `${url.origin}/callback`);
+    githubUrl.searchParams.set("scope", scope);
+    githubUrl.searchParams.set("state", stateString);
+    githubUrl.searchParams.set("code_challenge", codeChallenge);
+    githubUrl.searchParams.set("code_challenge_method", "S256");
 
     return new Response(null, {
       status: 302,
       headers: {
         Location: githubUrl.toString(),
-        'Set-Cookie': `oauth_state=${encodeURIComponent(
+        "Set-Cookie": `oauth_state=${encodeURIComponent(
           stateString
-        )}; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=600; Path=/`
-      }
-    })
+        )}; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=600; Path=/`,
+      },
+    });
   }
 
   // Validate client_id
-  if (!isValidDomain(clientId) && clientId !== 'localhost') {
-    return new Response('Invalid client_id: must be a valid domain', {
-      status: 400
-    })
+  if (!isValidDomain(clientId) && clientId !== "localhost") {
+    return new Response("Invalid client_id: must be a valid domain", {
+      status: 400,
+    });
   }
 
   // Validate message parameter (optional security measure)
   if (message && !isValidMessage(message)) {
-    return new Response('Invalid message: contains unsafe content', {
-      status: 400
-    })
+    return new Response("Invalid message: contains unsafe content", {
+      status: 400,
+    });
   }
 
   // If no redirect_uri provided, use default pattern
   if (!redirectUri) {
-    redirectUri = `https://${clientId}/callback`
+    redirectUri = `https://${clientId}/callback`;
   }
 
   // Validate redirect_uri
   try {
-    const redirectUrl = new URL(redirectUri)
-    if (redirectUrl.protocol !== 'https:' && clientId !== 'localhost') {
-      return new Response('Invalid redirect_uri: must use HTTPS', {
-        status: 400
-      })
+    const redirectUrl = new URL(redirectUri);
+    if (redirectUrl.protocol !== "https:" && clientId !== "localhost") {
+      return new Response("Invalid redirect_uri: must use HTTPS", {
+        status: 400,
+      });
     }
     if (redirectUrl.hostname !== clientId) {
-      return new Response('Invalid redirect_uri: must be on same origin as client_id', {
-        status: 400
-      })
+      return new Response(
+        "Invalid redirect_uri: must be on same origin as client_id",
+        {
+          status: 400,
+        }
+      );
     }
   } catch {
-    return new Response('Invalid redirect_uri format', { status: 400 })
+    return new Response("Invalid redirect_uri format", { status: 400 });
   }
 
   // Only support authorization code flow
-  if (responseType !== 'code') {
-    return new Response('Unsupported response_type', { status: 400 })
+  if (responseType !== "code") {
+    return new Response("Unsupported response_type", { status: 400 });
   }
 
   // Check if user is already authenticated
-  const username = getGitHubUsername(request)
+  const username = getGitHubUsername(request);
   if (username) {
     // User is authenticated, show key selection/management page
     return await showKeyManagementPage(
@@ -361,7 +473,7 @@ async function handleAuthorize(
       username,
       resource,
       message
-    )
+    );
   }
 
   // User not authenticated, redirect to GitHub OAuth
@@ -370,14 +482,14 @@ async function handleAuthorize(
     redirectUri,
     originalState: state,
     resource,
-    message
-  }
+    message,
+  };
 
-  const providerStateString = btoa(JSON.stringify(providerState))
+  const providerStateString = btoa(JSON.stringify(providerState));
 
   // Generate PKCE for GitHub OAuth
-  const codeVerifier = generateCodeVerifier()
-  const codeChallenge = await generateCodeChallenge(codeVerifier)
+  const codeVerifier = generateCodeVerifier();
+  const codeChallenge = await generateCodeChallenge(codeVerifier);
 
   const githubState: OAuthState = {
     redirectTo: url.pathname + url.search,
@@ -386,28 +498,28 @@ async function handleAuthorize(
     clientId,
     originalState: state,
     redirectUri,
-    message
-  }
+    message,
+  };
 
-  const githubStateString = btoa(JSON.stringify(githubState))
+  const githubStateString = btoa(JSON.stringify(githubState));
 
-  const githubUrl = new URL('https://github.com/login/oauth/authorize')
-  githubUrl.searchParams.set('client_id', env.GITHUB_CLIENT_ID)
-  githubUrl.searchParams.set('redirect_uri', `${url.origin}/callback`)
-  githubUrl.searchParams.set('scope', scope)
-  githubUrl.searchParams.set('state', githubStateString)
-  githubUrl.searchParams.set('code_challenge', codeChallenge)
-  githubUrl.searchParams.set('code_challenge_method', 'S256')
+  const githubUrl = new URL("https://github.com/login/oauth/authorize");
+  githubUrl.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
+  githubUrl.searchParams.set("redirect_uri", `${url.origin}/callback`);
+  githubUrl.searchParams.set("scope", scope);
+  githubUrl.searchParams.set("state", githubStateString);
+  githubUrl.searchParams.set("code_challenge", codeChallenge);
+  githubUrl.searchParams.set("code_challenge_method", "S256");
 
-  const headers = new Headers({ Location: githubUrl.toString() })
+  const headers = new Headers({ Location: githubUrl.toString() });
   headers.append(
-    'Set-Cookie',
+    "Set-Cookie",
     `oauth_state=${encodeURIComponent(
       githubStateString
     )}; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=600; Path=/`
-  )
+  );
 
-  return new Response(null, { status: 302, headers })
+  return new Response(null, { status: 302, headers });
 }
 
 async function showKeyManagementPage(
@@ -421,24 +533,24 @@ async function showKeyManagementPage(
   message?: string
 ): Promise<Response> {
   // Get user's data
-  const userDOId = env.UserDO.idFromName(`user:${username}`)
-  const userDO = env.UserDO.get(userDOId)
-  const userData = await userDO.getUser()
-  const keys = await userDO.getCloudflareKeys()
+  const userDOId = env.UserDO.idFromName(`user:${username}`);
+  const userDO = env.UserDO.get(userDOId);
+  const userData = await userDO.getUser();
+  const keys = await userDO.getCloudflareKeys();
 
   if (!userData) {
-    return new Response('User not found', { status: 404 })
+    return new Response("User not found", { status: 404 });
   }
 
-  const { user } = userData
+  const { user } = userData;
 
   // Handle form submission
-  if (request.method === 'POST') {
-    const formData = await request.formData()
-    const action = formData.get('action')
+  if (request.method === "POST") {
+    const formData = await request.formData();
+    const action = formData.get("action");
 
-    if (action === 'select') {
-      const selectedKeyId = formData.get('keyId')
+    if (action === "select") {
+      const selectedKeyId = formData.get("keyId");
       if (selectedKeyId) {
         return await createAuthCodeAndRedirect(
           env,
@@ -450,24 +562,25 @@ async function showKeyManagementPage(
           selectedKeyId.toString(),
           resource,
           message
-        )
+        );
       }
     }
 
-    if (action === 'add') {
-      const name = formData.get('name')?.toString()
-      const accountId = formData.get('accountId')?.toString()
-      const apiKey = formData.get('apiKey')?.toString()
+    if (action === "add") {
+      const name = formData.get("name")?.toString();
+      const accountId = formData.get("accountId")?.toString();
+      const apiKey = formData.get("apiKey")?.toString();
 
       if (!name || !accountId || !apiKey) {
+        //@ts-ignore
         return showKeyManagementPageHTML(
           user,
           keys,
           clientId,
-          'Missing required fields',
+          "Missing required fields",
           true,
           message
-        )
+        );
       }
 
       // Validate the API key by making a test request
@@ -476,20 +589,20 @@ async function showKeyManagementPage(
         {
           headers: {
             Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json'
-          }
+            "Content-Type": "application/json",
+          },
         }
-      )
+      );
 
       if (!testResponse.ok) {
         return showKeyManagementPageHTML(
           user,
           keys,
           clientId,
-          'Invalid API key or Account ID',
+          "Invalid API key or Account ID",
           true,
           message
-        )
+        );
       }
 
       const newKey: CloudflareAPIKey = {
@@ -497,31 +610,38 @@ async function showKeyManagementPage(
         name,
         accountId,
         apiKey,
-        createdAt: new Date().toISOString()
-      }
+        createdAt: new Date().toISOString(),
+      };
 
-      await userDO.addCloudflareKey(newKey)
+      await userDO.addCloudflareKey(newKey);
 
       // Redirect to same page to show updated keys
       return new Response(null, {
         status: 302,
-        headers: { Location: request.url }
-      })
+        headers: { Location: request.url },
+      });
     }
 
-    if (action === 'delete') {
-      const keyId = formData.get('keyId')?.toString()
+    if (action === "delete") {
+      const keyId = formData.get("keyId")?.toString();
       if (keyId) {
-        await userDO.removeCloudflareKey(keyId)
+        await userDO.removeCloudflareKey(keyId);
         return new Response(null, {
           status: 302,
-          headers: { Location: request.url }
-        })
+          headers: { Location: request.url },
+        });
       }
     }
   }
 
-  return showKeyManagementPageHTML(user, keys, clientId, undefined, true, message)
+  return showKeyManagementPageHTML(
+    user,
+    keys,
+    clientId,
+    undefined,
+    true,
+    message
+  );
 }
 
 function showKeyManagementPageHTML(
@@ -534,19 +654,21 @@ function showKeyManagementPageHTML(
 ): Response {
   const keyOptions = keys
     .map(
-      key => `
+      (key) => `
     <div class="key-item">
       <div class="key-info">
         <div class="key-name">${escapeHtml(key.name)}</div>
         <div class="key-details">
-          <span class="key-date">Added ${new Date(key.createdAt).toLocaleDateString()}</span>
+          <span class="key-date">Added ${new Date(
+            key.createdAt
+          ).toLocaleDateString()}</span>
         </div>
       </div>
       <div class="key-actions">
         ${
           isOAuthFlow
             ? `<button type="submit" name="keyId" value="${key.id}" class="btn btn-primary">Select</button>`
-            : ''
+            : ""
         }
         <form method="POST" style="display: inline;">
           <input type="hidden" name="action" value="delete">
@@ -557,18 +679,20 @@ function showKeyManagementPageHTML(
     </div>
   `
     )
-    .join('')
+    .join("");
 
   // Format the authorization message
-  const defaultMessage = `Access Requested to your Cloudflare account. Select an API key to grant access with the required permissions.`
-  const authMessage = message ? sanitizeMessage(message) : defaultMessage
+  const defaultMessage = `Access Requested to your Cloudflare account. Select an API key to grant access with the required permissions.`;
+  const authMessage = message ? sanitizeMessage(message) : defaultMessage;
 
   return new Response(
     `
     <!DOCTYPE html>
     <html lang="en">
     <head>
-      <title>${isOAuthFlow ? 'Authorize Access' : 'Manage API Keys'} - Simpler Auth</title>
+      <title>${
+        isOAuthFlow ? "Authorize Access" : "Manage API Keys"
+      } - Simpler Auth</title>
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <meta charset="utf-8">
       <style>
@@ -868,7 +992,7 @@ function showKeyManagementPageHTML(
         <div class="header">
           <div class="logo">Simpler Auth</div>
           <div class="subtitle">
-            ${isOAuthFlow ? 'Authorize API Access' : 'Manage Cloudflare Keys'}
+            ${isOAuthFlow ? "Authorize API Access" : "Manage Cloudflare Keys"}
           </div>
         </div>
         
@@ -881,11 +1005,13 @@ function showKeyManagementPageHTML(
               <a href="/logout" class="nav-link">Sign Out</a>
             </div>
           `
-              : ''
+              : ""
           }
           
           <div class="user-info">
-            <img src="${user.avatar_url}" alt="${escapeHtml(user.name || user.login)}">
+            <img src="${user.avatar_url}" alt="${escapeHtml(
+      user.name || user.login
+    )}">
             <div class="user-name">${escapeHtml(user.name || user.login)}</div>
           </div>
           
@@ -899,10 +1025,10 @@ function showKeyManagementPageHTML(
               <div class="oauth-message">${authMessage}</div>
             </div>
           `
-              : ''
+              : ""
           }
           
-          ${error ? `<div class="error">${escapeHtml(error)}</div>` : ''}
+          ${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
           
           ${
             keys.length > 0
@@ -921,7 +1047,7 @@ function showKeyManagementPageHTML(
               <div>Add your first Cloudflare API key below to continue</div>
             </div>
           `
-              : ''
+              : ""
           }
           
           <div class="form-section">
@@ -972,8 +1098,8 @@ function showKeyManagementPageHTML(
     </body>
     </html>
   `,
-    { headers: { 'Content-Type': 'text/html;charset=utf8' } }
-  )
+    { headers: { "Content-Type": "text/html;charset=utf8" } }
+  );
 }
 
 async function createAuthCodeAndRedirect(
@@ -988,11 +1114,11 @@ async function createAuthCodeAndRedirect(
   message?: string
 ): Promise<Response> {
   // Generate auth code
-  const authCode = generateCodeVerifier()
+  const authCode = generateCodeVerifier();
 
   // Create Durable Object for this auth code
-  const id = env.CodeDO.idFromName(`code:${authCode}`)
-  const authCodeDO = env.CodeDO.get(id)
+  const id = env.CodeDO.idFromName(`code:${authCode}`);
+  const authCodeDO = env.CodeDO.get(id);
 
   await authCodeDO.setAuthData(
     username,
@@ -1002,308 +1128,333 @@ async function createAuthCodeAndRedirect(
     selectedKeyId,
     resource,
     message
-  )
+  );
 
   // Redirect back to client with auth code
-  const redirectUrl = new URL(redirectUri)
-  redirectUrl.searchParams.set('code', authCode)
+  const redirectUrl = new URL(redirectUri);
+  redirectUrl.searchParams.set("code", authCode);
   if (state) {
-    redirectUrl.searchParams.set('state', state)
+    redirectUrl.searchParams.set("state", state);
   }
 
   return new Response(null, {
     status: 302,
-    headers: { Location: redirectUrl.toString() }
-  })
+    headers: { Location: redirectUrl.toString() },
+  });
 }
 
-async function handleToken(request: Request, env: Env, scope: string): Promise<Response> {
-  if (request.method === 'OPTIONS') {
+async function handleToken(
+  request: Request,
+  env: Env,
+  scope: string
+): Promise<Response> {
+  if (request.method === "OPTIONS") {
     return new Response(null, {
       status: 204,
       headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'POST, OPTIONS',
-        'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-      }
-    })
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+    });
   }
 
-  if (request.method !== 'POST') {
-    return new Response('Method not allowed', {
+  if (request.method !== "POST") {
+    return new Response("Method not allowed", {
       status: 405,
-      headers: { 'Access-Control-Allow-Origin': '*' }
-    })
+      headers: { "Access-Control-Allow-Origin": "*" },
+    });
   }
 
   const headers = {
-    'Content-Type': 'application/json',
-    'Access-Control-Allow-Origin': '*'
-  }
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+  };
 
-  const formData = await request.formData()
-  const grantType = formData.get('grant_type')
-  const code = formData.get('code')
-  const clientId = formData.get('client_id')
-  const redirectUri = formData.get('redirect_uri')
-  const resource = formData.get('resource')
+  const formData = await request.formData();
+  const grantType = formData.get("grant_type");
+  const code = formData.get("code");
+  const clientId = formData.get("client_id");
+  const redirectUri = formData.get("redirect_uri");
+  const resource = formData.get("resource");
 
-  if (grantType !== 'authorization_code') {
-    return new Response(JSON.stringify({ error: 'unsupported_grant_type' }), {
+  if (grantType !== "authorization_code") {
+    return new Response(JSON.stringify({ error: "unsupported_grant_type" }), {
       status: 400,
-      headers
-    })
+      headers,
+    });
   }
 
   if (!code || !clientId) {
-    return new Response(JSON.stringify({ error: 'invalid_request' }), {
+    return new Response(JSON.stringify({ error: "invalid_request" }), {
       status: 400,
-      headers
-    })
+      headers,
+    });
   }
 
   // Validate client_id
-  if (!isValidDomain(clientId.toString()) && clientId.toString() !== 'localhost') {
-    return new Response(JSON.stringify({ error: 'invalid_client' }), {
+  if (
+    !isValidDomain(clientId.toString()) &&
+    clientId.toString() !== "localhost"
+  ) {
+    return new Response(JSON.stringify({ error: "invalid_client" }), {
       status: 400,
-      headers
-    })
+      headers,
+    });
   }
 
   // Get auth code data
-  const id = env.CodeDO.idFromName(`code:${code.toString()}`)
-  const authCodeDO = env.CodeDO.get(id)
-  const authData = await authCodeDO.getAuthData()
+  const id = env.CodeDO.idFromName(`code:${code.toString()}`);
+  const authCodeDO = env.CodeDO.get(id);
+  const authData = await authCodeDO.getAuthData();
 
   if (!authData) {
-    return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+    return new Response(JSON.stringify({ error: "invalid_grant" }), {
       status: 400,
-      headers
-    })
+      headers,
+    });
   }
 
   // Validate client_id and redirect_uri match
-  if (authData.clientId !== clientId || (redirectUri && authData.redirectUri !== redirectUri)) {
-    return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+  if (
+    authData.clientId !== clientId ||
+    (redirectUri && authData.redirectUri !== redirectUri)
+  ) {
+    return new Response(JSON.stringify({ error: "invalid_grant" }), {
       status: 400,
-      headers
-    })
+      headers,
+    });
   }
 
   // Validate resource parameter
   if (resource && authData.resource !== resource) {
-    return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+    return new Response(JSON.stringify({ error: "invalid_grant" }), {
       status: 400,
-      headers
-    })
+      headers,
+    });
   }
 
   // Get the selected Cloudflare API key
-  const userDOId = env.UserDO.idFromName(`user:${authData.username}`)
-  const userDO = env.UserDO.get(userDOId)
-  const keys = await userDO.getCloudflareKeys()
-  const selectedKey = keys.find(k => k.id === authData.selectedKeyId)
+  const userDOId = env.UserDO.idFromName(`user:${authData.username}`);
+  const userDO = env.UserDO.get(userDOId);
+  const keys = await userDO.getCloudflareKeys();
+  const selectedKey = keys.find((k) => k.id === authData.selectedKeyId);
 
   if (!selectedKey) {
-    return new Response(JSON.stringify({ error: 'invalid_grant' }), {
+    return new Response(JSON.stringify({ error: "invalid_grant" }), {
       status: 400,
-      headers
-    })
+      headers,
+    });
   }
 
   // Update last used timestamp
-  await userDO.updateKeyLastUsed(selectedKey.id)
+  await userDO.updateKeyLastUsed(selectedKey.id);
 
   // Generate a bearer token that represents this access
   const bearerToken = await generateBearerToken(
     authData.username,
     selectedKey.id,
     env.GITHUB_CLIENT_SECRET
-  )
+  );
 
   // Return the Cloudflare API key details
   return new Response(
     JSON.stringify({
       access_token: bearerToken,
-      token_type: 'bearer',
+      token_type: "bearer",
       scope,
       cloudflare_account_id: selectedKey.accountId,
       cloudflare_api_key: selectedKey.apiKey,
       cloudflare_key_name: selectedKey.name,
-      ...(authData.message && { message: authData.message })
+      ...(authData.message && { message: authData.message }),
     }),
     { headers }
-  )
+  );
 }
 
-async function handleCallback(request: Request, env: Env, sameSite: string): Promise<Response> {
-  const url = new URL(request.url)
-  const code = url.searchParams.get('code')
-  const stateParam = url.searchParams.get('state')
+async function handleCallback(
+  request: Request,
+  env: Env,
+  sameSite: string
+): Promise<Response> {
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const stateParam = url.searchParams.get("state");
 
   if (!code || !stateParam) {
-    return new Response('Missing code or state parameter', { status: 400 })
+    return new Response("Missing code or state parameter", { status: 400 });
   }
 
   // Get state from cookie
-  const cookies = parseCookies(request.headers.get('Cookie') || '')
-  const stateCookie = cookies.oauth_state
+  const cookies = parseCookies(request.headers.get("Cookie") || "");
+  const stateCookie = cookies.oauth_state;
 
   if (!stateCookie || stateCookie !== stateParam) {
-    return new Response('Invalid state parameter', { status: 400 })
+    return new Response("Invalid state parameter", { status: 400 });
   }
 
   // Parse state
-  let state: OAuthState
+  let state: OAuthState;
   try {
-    state = JSON.parse(atob(stateParam))
+    state = JSON.parse(atob(stateParam));
   } catch {
-    return new Response('Invalid state format', { status: 400 })
+    return new Response("Invalid state format", { status: 400 });
   }
 
   // Exchange code for token with GitHub
-  const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
-    method: 'POST',
-    headers: {
-      Accept: 'application/json',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      client_id: env.GITHUB_CLIENT_ID,
-      client_secret: env.GITHUB_CLIENT_SECRET,
-      code,
-      redirect_uri: `${url.origin}/callback`,
-      code_verifier: state.codeVerifier
-    })
-  })
+  const tokenResponse = await fetch(
+    "https://github.com/login/oauth/access_token",
+    {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        client_id: env.GITHUB_CLIENT_ID,
+        client_secret: env.GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: `${url.origin}/callback`,
+        code_verifier: state.codeVerifier,
+      }),
+    }
+  );
 
-  const tokenData = (await tokenResponse.json()) as any
+  const tokenData = (await tokenResponse.json()) as any;
 
   if (!tokenData.access_token) {
-    return new Response('Failed to get access token', { status: 400 })
+    return new Response("Failed to get access token", { status: 400 });
   }
 
   // Get user info from GitHub
-  const userResponse = await fetch('https://api.github.com/user', {
+  const userResponse = await fetch("https://api.github.com/user", {
     headers: {
       Authorization: `Bearer ${tokenData.access_token}`,
-      'User-Agent': 'CloudflareOAuthProvider'
-    }
-  })
+      "User-Agent": "CloudflareOAuthProvider",
+    },
+  });
 
   if (!userResponse.ok) {
-    return new Response('Failed to get user info', { status: 400 })
+    return new Response("Failed to get user info", { status: 400 });
   }
 
-  const user = (await userResponse.json()) as GitHubUser
+  const user = (await userResponse.json()) as GitHubUser;
 
   // Store user data by GitHub username
-  const userDOId = env.UserDO.idFromName(`user:${user.login}`)
-  const userDO = env.UserDO.get(userDOId)
+  const userDOId = env.UserDO.idFromName(`user:${user.login}`);
+  const userDO = env.UserDO.get(userDOId);
 
   // Check if user exists, if so just update token, otherwise create new
-  const existingUser = await userDO.getUser()
+  const existingUser = await userDO.getUser();
   if (existingUser) {
-    await userDO.updateGitHubToken(tokenData.access_token)
+    await userDO.updateGitHubToken(tokenData.access_token);
   } else {
-    await userDO.setUser(user, tokenData.access_token)
+    await userDO.setUser(user, tokenData.access_token);
   }
 
   // Set login cookie with 90-day expiration
-  const maxAge = 90 * 24 * 60 * 60 // 90 days in seconds
+  const maxAge = 90 * 24 * 60 * 60; // 90 days in seconds
   const cookieValue = `${user.login}:${await generateLoginToken(
     user.login,
     env.GITHUB_CLIENT_SECRET
-  )}`
+  )}`;
 
   // Check if this was part of an OAuth provider flow
   if (state.clientId) {
     // Redirect back to the authorize endpoint to show key selection
-    const redirectUrl = new URL(`${url.origin}/authorize`)
-    redirectUrl.searchParams.set('client_id', state.clientId)
-    redirectUrl.searchParams.set('redirect_uri', state.redirectUri || '')
-    redirectUrl.searchParams.set('response_type', 'code')
+    const redirectUrl = new URL(`${url.origin}/authorize`);
+    redirectUrl.searchParams.set("client_id", state.clientId);
+    redirectUrl.searchParams.set("redirect_uri", state.redirectUri || "");
+    redirectUrl.searchParams.set("response_type", "code");
     if (state.originalState) {
-      redirectUrl.searchParams.set('state', state.originalState)
+      redirectUrl.searchParams.set("state", state.originalState);
     }
     if (state.resource) {
-      redirectUrl.searchParams.set('resource', state.resource)
+      redirectUrl.searchParams.set("resource", state.resource);
     }
     if (state.message) {
-      redirectUrl.searchParams.set('message', state.message)
+      redirectUrl.searchParams.set("message", state.message);
     }
 
-    const headers = new Headers({ Location: redirectUrl.toString() })
+    const headers = new Headers({ Location: redirectUrl.toString() });
     headers.append(
-      'Set-Cookie',
+      "Set-Cookie",
       `oauth_state=; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=0; Path=/`
-    )
+    );
     headers.append(
-      'Set-Cookie',
+      "Set-Cookie",
       `github_login=${cookieValue}; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=${maxAge}; Path=/`
-    )
+    );
 
-    return new Response(null, { status: 302, headers })
+    return new Response(null, { status: 302, headers });
   }
 
   // Normal redirect (direct login)
-  const headers = new Headers({ Location: state.redirectTo || '/' })
+  const headers = new Headers({ Location: state.redirectTo || "/" });
   headers.append(
-    'Set-Cookie',
+    "Set-Cookie",
     `oauth_state=; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=0; Path=/`
-  )
+  );
   headers.append(
-    'Set-Cookie',
+    "Set-Cookie",
     `github_login=${cookieValue}; HttpOnly; Secure; SameSite=${sameSite}; Max-Age=${maxAge}; Path=/`
-  )
+  );
 
-  return new Response(null, { status: 302, headers })
+  return new Response(null, { status: 302, headers });
 }
 
 export function getGitHubUsername(request: Request): string | null {
-  const cookies = parseCookies(request.headers.get('Cookie') || '')
-  const githubLogin = cookies.github_login
+  const cookies = parseCookies(request.headers.get("Cookie") || "");
+  const githubLogin = cookies.github_login;
 
-  if (!githubLogin) return null
+  if (!githubLogin) return null;
 
-  const [username] = githubLogin.split(':')
-  return username
+  const [username] = githubLogin.split(":");
+  return username;
 }
 
 // Management routes
-export async function handleManagement(request: Request, env: Env): Promise<Response | null> {
-  const url = new URL(request.url)
-  const path = url.pathname
+export async function handleManagement(
+  request: Request,
+  env: Env
+): Promise<Response | null> {
+  const url = new URL(request.url);
+  const path = url.pathname;
 
-  if (path === '/manage') {
-    const username = getGitHubUsername(request)
+  if (path === "/manage") {
+    const username = getGitHubUsername(request);
     if (!username) {
       return new Response(null, {
         status: 302,
-        headers: { Location: '/authorize?redirect_to=/manage' }
-      })
+        headers: { Location: "/authorize?redirect_to=/manage" },
+      });
     }
 
-    const userDOId = env.UserDO.idFromName(`user:${username}`)
-    const userDO = env.UserDO.get(userDOId)
-    const userData = await userDO.getUser()
-    const keys = await userDO.getCloudflareKeys()
+    const userDOId = env.UserDO.idFromName(`user:${username}`);
+    const userDO = env.UserDO.get(userDOId);
+    const userData = await userDO.getUser();
+    const keys = await userDO.getCloudflareKeys();
 
     if (!userData) {
-      return new Response('User not found', { status: 404 })
+      return new Response("User not found", { status: 404 });
     }
 
-    if (request.method === 'POST') {
-      const formData = await request.formData()
-      const action = formData.get('action')
+    if (request.method === "POST") {
+      const formData = await request.formData();
+      const action = formData.get("action");
 
-      if (action === 'add') {
-        const name = formData.get('name')?.toString()
-        const accountId = formData.get('accountId')?.toString()
-        const apiKey = formData.get('apiKey')?.toString()
+      if (action === "add") {
+        const name = formData.get("name")?.toString();
+        const accountId = formData.get("accountId")?.toString();
+        const apiKey = formData.get("apiKey")?.toString();
 
         if (!name || !accountId || !apiKey) {
-          return showKeyManagementPageHTML(userData.user, keys, '', 'Missing required fields')
+          return showKeyManagementPageHTML(
+            userData.user,
+            keys,
+            "",
+            "Missing required fields"
+          );
         }
 
         // Validate the API key by making a test request
@@ -1312,13 +1463,18 @@ export async function handleManagement(request: Request, env: Env): Promise<Resp
           {
             headers: {
               Authorization: `Bearer ${apiKey}`,
-              'Content-Type': 'application/json'
-            }
+              "Content-Type": "application/json",
+            },
           }
-        )
+        );
 
         if (!testResponse.ok) {
-          return showKeyManagementPageHTML(userData.user, keys, '', 'Invalid API key or Account ID')
+          return showKeyManagementPageHTML(
+            userData.user,
+            keys,
+            "",
+            "Invalid API key or Account ID"
+          );
         }
 
         const newKey: CloudflareAPIKey = {
@@ -1326,50 +1482,52 @@ export async function handleManagement(request: Request, env: Env): Promise<Resp
           name,
           accountId,
           apiKey,
-          createdAt: new Date().toISOString()
-        }
+          createdAt: new Date().toISOString(),
+        };
 
-        await userDO.addCloudflareKey(newKey)
+        await userDO.addCloudflareKey(newKey);
         return new Response(null, {
           status: 302,
-          headers: { Location: '/manage' }
-        })
+          headers: { Location: "/manage" },
+        });
       }
 
-      if (action === 'delete') {
-        const keyId = formData.get('keyId')?.toString()
+      if (action === "delete") {
+        const keyId = formData.get("keyId")?.toString();
         if (keyId) {
-          await userDO.removeCloudflareKey(keyId)
+          await userDO.removeCloudflareKey(keyId);
         }
         return new Response(null, {
           status: 302,
-          headers: { Location: '/manage' }
-        })
+          headers: { Location: "/manage" },
+        });
       }
     }
 
-    return showKeyManagementPageHTML(userData.user, keys, '', undefined, false)
+    return showKeyManagementPageHTML(userData.user, keys, "", undefined, false);
   }
 
-  return null
+  return null;
 }
 
 // Utility functions
 function parseCookies(cookieHeader: string): Record<string, string> {
-  const cookies: Record<string, string> = {}
-  cookieHeader.split(';').forEach(cookie => {
-    const [name, value] = cookie.trim().split('=')
+  const cookies: Record<string, string> = {};
+  cookieHeader.split(";").forEach((cookie) => {
+    const [name, value] = cookie.trim().split("=");
     if (name && value) {
-      cookies[name] = decodeURIComponent(value)
+      cookies[name] = decodeURIComponent(value);
     }
-  })
-  return cookies
+  });
+  return cookies;
 }
 
 function isValidDomain(domain: string): boolean {
   const domainRegex =
-    /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/
-  return domainRegex.test(domain) && domain.includes('.') && domain.length <= 253
+    /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+  return (
+    domainRegex.test(domain) && domain.includes(".") && domain.length <= 253
+  );
 }
 
 function isValidMessage(message: string): boolean {
@@ -1379,65 +1537,72 @@ function isValidMessage(message: string): boolean {
   // - No URLs to prevent phishing
 
   if (!message || message.length > 500) {
-    return false
+    return false;
   }
 
   // Check for HTML tags
   if (/<[^>]*>/.test(message)) {
-    return false
+    return false;
   }
 
   // Check for URLs (basic detection)
   if (/https?:\/\/|www\.|[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i.test(message)) {
-    return false
+    return false;
   }
 
-  return true
+  return true;
 }
 
 export function sanitizeMessage(message: string): string {
   return message
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function generateCodeVerifier(): string {
-  const array = new Uint8Array(32)
-  crypto.getRandomValues(array)
+  const array = new Uint8Array(32);
+  crypto.getRandomValues(array);
   return btoa(String.fromCharCode.apply(null, Array.from(array)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '')
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
 }
 
 async function generateCodeChallenge(verifier: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(verifier)
-  const digest = await crypto.subtle.digest('SHA-256', data)
-  return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(digest))))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '')
+  const encoder = new TextEncoder();
+  const data = encoder.encode(verifier);
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return btoa(
+    String.fromCharCode.apply(null, Array.from(new Uint8Array(digest)))
+  )
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
 }
 
-async function generateLoginToken(username: string, secret: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(`${username}:${Date.now()}`)
+async function generateLoginToken(
+  username: string,
+  secret: string
+): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(`${username}:${Date.now()}`);
   const keyMaterial = await crypto.subtle.importKey(
-    'raw',
+    "raw",
     encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
+    { name: "HMAC", hash: "SHA-256" },
     false,
-    ['sign']
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", keyMaterial, data);
+  return btoa(
+    String.fromCharCode.apply(null, Array.from(new Uint8Array(signature)))
   )
-  const signature = await crypto.subtle.sign('HMAC', keyMaterial, data)
-  return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(signature))))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '')
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
 }
 
 async function generateBearerToken(
@@ -1445,61 +1610,63 @@ async function generateBearerToken(
   keyId: string,
   secret: string
 ): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(`${username}:${keyId}:${Date.now()}`)
+  const encoder = new TextEncoder();
+  const data = encoder.encode(`${username}:${keyId}:${Date.now()}`);
   const keyMaterial = await crypto.subtle.importKey(
-    'raw',
+    "raw",
     encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
+    { name: "HMAC", hash: "SHA-256" },
     false,
-    ['sign']
+    ["sign"]
+  );
+  const signature = await crypto.subtle.sign("HMAC", keyMaterial, data);
+  return btoa(
+    String.fromCharCode.apply(null, Array.from(new Uint8Array(signature)))
   )
-  const signature = await crypto.subtle.sign('HMAC', keyMaterial, data)
-  return btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(signature))))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=/g, '')
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=/g, "");
 }
 
 // Simple HTML escaping for server-side
 function escapeHtml(str: string): string {
   return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     // Handle OAuth routes
-    const oauthResponse = await handleOAuth(request, env)
-    if (oauthResponse) return oauthResponse
+    const oauthResponse = await handleOAuth(request, env);
+    if (oauthResponse) return oauthResponse;
 
     // Handle management routes
-    const managementResponse = await handleManagement(request, env)
-    if (managementResponse) return managementResponse
+    const managementResponse = await handleManagement(request, env);
+    if (managementResponse) return managementResponse;
 
-    const url = new URL(request.url)
-    const path = url.pathname
+    const url = new URL(request.url);
+    const path = url.pathname;
 
-    if (path === '/' || path === '/README.md') {
-      return handleHome(request, env)
+    if (path === "/" || path === "/README.md") {
+      return handleHome(request, env);
     }
 
-    if (path === '/demo') {
-      return handleDemo(request, env)
+    if (path === "/demo") {
+      return handleDemo(request, env);
     }
 
-    return new Response('Not found', { status: 404 })
-  }
-} satisfies ExportedHandler<Env>
+    return new Response("Not found", { status: 404 });
+  },
+} satisfies ExportedHandler<Env>;
 
 async function handleHome(request: Request, env: Env): Promise<Response> {
-  const username = getGitHubUsername(request)
-  const url = new URL(request.url)
-  const baseUrl = `${url.protocol}//${url.host}`
+  const username = getGitHubUsername(request);
+  const url = new URL(request.url);
+  const baseUrl = `${url.protocol}//${url.host}`;
 
   const readme = `# Login with Cloudflare
 
@@ -1701,16 +1868,16 @@ This service supports OAuth 2.0 discovery endpoints:
 
 ---
 
-*Powered by Cloudflare Workers and Durable Objects*`
+*Powered by Cloudflare Workers and Durable Objects*`;
 
   return new Response(readme, {
-    headers: { 'Content-Type': 'text/markdown; charset=utf-8' }
-  })
+    headers: { "Content-Type": "text/markdown; charset=utf-8" },
+  });
 }
 
 async function handleDemo(request: Request, env: Env): Promise<Response> {
-  const url = new URL(request.url)
-  const baseUrl = `${url.protocol}//${url.host}`
+  const url = new URL(request.url);
+  const baseUrl = `${url.protocol}//${url.host}`;
 
   return new Response(
     `
@@ -1884,6 +2051,6 @@ const data = await response.json();
     </body>
     </html>
   `,
-    { headers: { 'Content-Type': 'text/html;charset=utf8' } }
-  )
+    { headers: { "Content-Type": "text/html;charset=utf8" } }
+  );
 }
