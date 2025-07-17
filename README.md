@@ -1,10 +1,8 @@
 # Login with Cloudflare
 
-See https://cloudflare.simplerauth.com for how to use.
+See https://cloudflare.simplerauth.com for how to use it fully raw (any programming language)
 
-Also good to use in combination with https://uithub.com/janwilmake/simplerauth-provider
-
-See [mod.ts](mod.ts) on how this can be used while also exposing an MCP-compatible oauth provider. Can be installed using `npm i login-with-cloudflare` and add to your wrangler.json:
+Also good to use in combination with https://uithub.com/janwilmake/simplerauth-provider. See [mod.ts](mod.ts) on how this can be used while also exposing an MCP-compatible oauth provider. Can be installed using `npm i login-with-cloudflare` and add to your wrangler.json:
 
 ```json
 {
@@ -15,7 +13,7 @@ See [mod.ts](mod.ts) on how this can be used while also exposing an MCP-compatib
 }
 ```
 
-and then use it like this:
+And then use it like this:
 
 ```ts
 import { oauthEndpoints, AuthProvider } from "login-with-cloudflare";
@@ -35,3 +33,5 @@ export default {
   },
 };
 ```
+
+See [demo](demo) for a more complete example
